@@ -1,0 +1,11 @@
+{
+  "device_ip": "192.168.68.59",
+  "city": "Tarneit",
+  "country": "Australia",
+  "latitude": -37.8368,
+  "longitude": 144.6596,
+  "timezone": "Australia/Melbourne",
+  "calculation_method": 3,
+  "asr_method": 0,
+  "alert_seconds": 300
+}
