@@ -25,6 +25,7 @@ except ImportError:
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "timegate_prayer_config.json")
 DEFAULT_CONFIG = {
     "device_ip": "",
+    "local_token": "",
     "city": "Tarneit",
     "country": "Australia",
     "latitude": -37.8368,
@@ -56,6 +57,7 @@ def save_config(config):
 class TimeGateClient:
     def __init__(self, ip):
         self.ip = ip
+        self.local_token = load_config().get("local_token", "")
 
     @property
     def url(self):
@@ -64,6 +66,9 @@ class TimeGateClient:
     def send(self, payload, timeout=10):
         if not self.ip:
             return False
+        local_token = getattr(self, "local_token", None)
+        if local_token:
+            payload = {**payload, "LocalToken": int(local_token)}
         response = requests.post(self.url, json=payload, timeout=timeout)
         response.raise_for_status()
         return True
@@ -83,9 +88,11 @@ class TimeGateClient:
             "LcdIndependence": [0, 0, 1, 0, 0],
         })
 
-    def show_image(self, image, panel, tag=""):
-        self.screen_on()
-        self.send({"Command": "Draw/ResetHttpGifId"})
+    def show_image(self, image, panel, tag="", reset_cache=True):
+        if reset_cache:
+            self.screen_on()
+        if reset_cache:
+            self.send({"Command": "Draw/ResetHttpGifId"})
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=85)
         pic_data = base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -96,34 +103,59 @@ class TimeGateClient:
             "PicNum": 1,
             "PicWidth": 128,
             "PicOffset": 0,
-            "PicID": int(time.time()) + panel,
-            "PicSpeed": 1000,
+            "PicID": int(time.time() * 1000) + panel,
+            "PicSpeed": 100,
             "PicData": pic_data,
         })
 
     def show_clock_weather(self, panel=1):
         now = datetime.now(ZoneInfo("Australia/Melbourne"))
-        temperature = "--°"
+        temperature = "--"
+        condition = "WEATHER"
         try:
-            response = requests.get("https://api.open-meteo.com/v1/forecast", params={
-                "latitude": self.config["latitude"], "longitude": self.config["longitude"],
-                "current": "temperature_2m", "timezone": "Australia/Melbourne",
-            }, timeout=8)
-            temperature = f"{round(response.json()['current']['temperature_2m'])}°C"
+            response = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": self.config["latitude"],
+                    "longitude": self.config["longitude"],
+                    "current": "temperature_2m,weather_code",
+                    "timezone": "Australia/Melbourne",
+                },
+                timeout=8,
+            )
+            response.raise_for_status()
+            current = response.json()["current"]
+            temperature = f"{round(current['temperature_2m'])}"
+            code = int(current.get("weather_code", 0))
+            condition = {
+                0: "CLEAR",
+                1: "MAINLY CLEAR",
+                2: "PARTLY CLOUDY",
+                3: "CLOUDY",
+                45: "FOG",
+                51: "DRIZZLE",
+                61: "RAIN",
+                71: "SNOW",
+                95: "STORM",
+            }.get(code, "WEATHER")
         except Exception:
             pass
 
-        image = Image.new("RGB", (128, 128), (8, 14, 28))
+        image = Image.new("RGB", (128, 128), (12, 12, 16))
         draw = ImageDraw.Draw(image)
         try:
-            big = ImageFont.truetype("arial.ttf", 32)
-            small = ImageFont.truetype("arial.ttf", 14)
+            title = ImageFont.truetype("arial.ttf", 14)
+            time_font = ImageFont.truetype("arial.ttf", 30)
+            value = ImageFont.truetype("arial.ttf", 13)
         except OSError:
-            big = ImageFont.load_default(); small = ImageFont.load_default()
-        draw.text((10, 18), now.strftime("%I:%M"), fill=(255, 255, 255), font=big)
-        draw.text((12, 60), now.strftime("%a %d %b").upper(), fill=(0, 255, 170), font=small)
-        draw.text((12, 82), "TARNEIT", fill=(180, 220, 220), font=small)
-        draw.text((12, 102), temperature, fill=(255, 190, 80), font=small)
+            title = ImageFont.load_default()
+            time_font = ImageFont.load_default()
+            value = ImageFont.load_default()
+        draw.text((8, 8), "CLOCK / WEATHER", fill=(255,255,255), font=title)
+        draw.text((8, 34), now.strftime("%H:%M"), fill=(0,255,170), font=time_font)
+        draw.text((8, 68), f"{temperature}°C", fill=(255,190,80), font=time_font)
+        draw.text((8, 104), now.strftime("%a %d %b").upper(), fill=(255,255,255), font=value)
+        draw.text((8, 121), condition, fill=(180,220,220), font=value)
         return self.show_image(image, panel)
 
     def show_gif(self, panel=3):
@@ -222,26 +254,47 @@ class TimeGateClient:
         return self.show_image(image, panel)
 
     def show_server_monitor(self, panel=5):
-        cpu = psutil.cpu_percent(interval=None)
+        psutil.cpu_percent(interval=None)
+        cpu = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
-        image = Image.new("RGB", (128, 128), (12, 12, 16))
-        draw = ImageDraw.Draw(image)
+        gpu_percent = None
         try:
-            title = ImageFont.truetype("arial.ttf", 14)
-            value = ImageFont.truetype("arial.ttf", 12)
-        except OSError:
-            title = ImageFont.load_default(); value = ImageFont.load_default()
-        draw.text((8, 8), "SERVER", fill=(255,255,255), font=title)
-        rows = (("CPU", cpu), ("RAM", memory.percent), ("DISK", disk.percent))
-        y = 38
-        for label, percent in rows:
-            draw.text((8, y), label, fill=(180,220,220), font=value)
-            draw.rectangle((43, y+2, 118, y+10), fill=(40,45,48))
-            draw.rectangle((43, y+2, 43 + int(75*percent/100), y+10), fill=(0,255,170))
-            draw.text((43, y+12), f"{percent:.0f}%", fill=(255,255,255), font=value)
-            y += 28
-        return self.show_image(image, panel)
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                gpu_percent = float(result.stdout.strip().splitlines()[0].strip())
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            pass
+
+        if not getattr(self, "_native_pc_face_ready", False):
+            self.send({
+                "Command": "Channel/SetClockSelectId",
+                "ClockId": 625,
+                "LcdIndex": panel,
+                "LcdIndependence": [0, 0, 0, 0, 1],
+            })
+            self._native_pc_face_ready = True
+            time.sleep(0.5)
+
+        return self.send({
+            "Command": "Device/UpdatePCParaInfo",
+            "ScreenList": [{
+                "LcdId": panel - 1,
+                "DispData": [
+                    f"{cpu:.0f}%",
+                    f"{gpu_percent:.0f}%" if gpu_percent is not None else "--",
+                    "--",
+                    "--",
+                    f"{memory.percent:.0f}%",
+                    "--",
+                ],
+            }],
+        })
 
     def show_salah_board(self, times, panel=2):
         self.screen_on()
