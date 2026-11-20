@@ -156,9 +156,7 @@ class TimeGateClient:
                 frames = []
                 for frame_index in range(min(getattr(source, "n_frames", 1), 40)):
                     source.seek(frame_index)
-                    frame = Image.fromarray(
-                        __import__("numpy").asarray(source.convert("RGB"), dtype="uint8")
-                    ).resize((128, 128), Image.Resampling.NEAREST)
+                    frame = source.convert("RGB").resize((128, 128), Image.Resampling.NEAREST)
                     buffer = io.BytesIO()
                     frame.save(buffer, format="JPEG", quality=85)
                     frames.append(base64.b64encode(buffer.getvalue()).decode("ascii"))
