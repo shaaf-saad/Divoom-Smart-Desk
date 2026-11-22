@@ -6,7 +6,7 @@ A Windows desktop dashboard for the Divoom TimeGate with five independently upda
 
 | Screen | Content | Refresh |
 |---|---|---|
-| 1 — Clock & Weather | Tarneit time, date and live temperature | Every minute |
+| 1 — Clock & Weather | Native Tarneit clock with temperature and weather display | Every minute |
 | 2 — Salah | Fajr, Dhuhr, Asr, Maghrib and Isha times | Every 12 hours |
 | 3 — Hadith | Rotating Hadith cards | Changes every 5 minutes |
 | 4 — Knowledge | Rotating AI, technology and general facts | Every minute |

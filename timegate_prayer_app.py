@@ -143,6 +143,14 @@ class TimeGateClient:
         })
 
     def show_native_clock_weather(self, panel=1):
+        timezone = self.config["timezone"]
+        offset_minutes = int(
+            datetime.now(ZoneInfo(timezone)).utcoffset().total_seconds() // 60
+        )
+        timezone_value = (
+            f"GMT{'+' if offset_minutes >= 0 else '-'}"
+            f"{abs(offset_minutes) // 60}:{abs(offset_minutes) % 60:02d}"
+        )
         self.send({
             "Command": "Sys/LogAndLat",
             "Latitude": str(self.config["latitude"]),
@@ -150,11 +158,11 @@ class TimeGateClient:
         })
         self.send({
             "Command": "Sys/TimeZone",
-            "TimeZoneValue": "GMT+11:00",
+            "TimeZoneValue": timezone_value,
         })
         return self.send({
             "Command": "Draw/SendHttpItemList",
-            "LcdIndex": panel,
+            "LcdIndex": panel - 1,
             "NewFlag": 1,
             "BackgroudGif": "",
             "ItemList": [
@@ -657,7 +665,7 @@ class PrayerApp:
         with DEVICE_REFRESH_LOCK:
             client = TimeGateClient(ip)
             try:
-                client.show_clock_weather(1)
+                client.show_native_clock_weather(1)
                 if self.prayer_times:
                     self._show_screen_two(client)
                 client.show_hadith(3)
@@ -773,7 +781,7 @@ class PrayerApp:
         with DEVICE_REFRESH_LOCK:
             try:
                 client = TimeGateClient(ip)
-                client.show_clock_weather(1)
+                client.show_native_clock_weather(1)
                 if self.prayer_times:
                     self._show_screen_two(client)
                 client.show_hadith(3)
