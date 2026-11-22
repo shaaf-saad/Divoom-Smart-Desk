@@ -142,33 +142,6 @@ class TimeGateClient:
             "PicData": pic_data,
         })
 
-    def show_native_clock_weather(self, panel=1):
-        timezone = self.config["timezone"]
-        offset_minutes = int(
-            datetime.now(ZoneInfo(timezone)).utcoffset().total_seconds() // 60
-        )
-        timezone_value = (
-            f"GMT{'+' if offset_minutes >= 0 else '-'}"
-            f"{abs(offset_minutes) // 60}:{abs(offset_minutes) % 60:02d}"
-        )
-        self.send({
-            "Command": "Sys/LogAndLat",
-            "Latitude": str(self.config["latitude"]),
-            "Longitude": str(self.config["longitude"]),
-        })
-        self.send({
-            "Command": "Sys/TimeZone",
-            "TimeZoneValue": timezone_value,
-        })
-        self.send({"Command": "Draw/ResetHttpGifId"})
-        lcd_independence = [1 if index == panel - 1 else 0 for index in range(5)]
-        return self.send({
-            "Command": "Channel/SetClockSelectId",
-            "ClockId": 50,
-            "LcdIndex": panel - 1,
-            "LcdIndependence": lcd_independence,
-        })
-
     def show_clock_weather(self, panel=1):
         now = datetime.now(ZoneInfo("Australia/Melbourne"))
         temperature = "--"
@@ -202,24 +175,42 @@ class TimeGateClient:
         except Exception:
             pass
 
-        image = Image.new("RGB", (128, 128), (5, 12, 18))
+        image = Image.new("RGB", (128, 128), (4, 13, 24))
         draw = ImageDraw.Draw(image)
-        try:
-            title = ImageFont.truetype("arial.ttf", 14)
-            time_font = ImageFont.truetype("arial.ttf", 30)
-            value = ImageFont.truetype("arial.ttf", 13)
-        except OSError:
-            title = ImageFont.load_default()
-            time_font = ImageFont.load_default()
-            value = ImageFont.load_default()
-        draw.rectangle((4, 4, 123, 123), outline=(0, 255, 255), width=2)
-        draw.line((8, 28, 120, 28), fill=(255, 190, 80), width=1)
-        draw.text((8, 8), "CLOCK / WEATHER", fill=(255,255,255), font=title)
-        draw.text((8, 34), now.strftime("%H:%M"), fill=(0,255,170), font=time_font)
-        draw.text((8, 66), "TEMP", fill=(180,220,220), font=value)
-        draw.text((8, 82), f"{temperature}°C", fill=(255,190,80), font=time_font)
-        draw.text((8, 104), now.strftime("%a %d %b").upper(), fill=(255,255,255), font=value)
-        draw.text((8, 121), condition, fill=(180,220,220), font=value)
+        fonts = []
+        for font_path in (
+            "arialbd.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        ):
+            try:
+                fonts = [ImageFont.truetype(font_path, size) for size in (42, 25, 15, 11)]
+                break
+            except OSError:
+                continue
+        if not fonts:
+            fonts = [ImageFont.load_default()] * 4
+        time_font, temperature_font, condition_font, detail_font = fonts
+
+        if condition in ("CLEAR", "MAINLY CLEAR", "PARTLY CLOUDY"):
+            draw.ellipse((77, 3, 133, 59), fill=(73, 57, 8))
+            draw.ellipse((87, 13, 123, 49), fill=(255, 188, 38))
+        if condition not in ("CLEAR", "MAINLY CLEAR"):
+            draw.ellipse((80, 29, 111, 57), fill=(48, 65, 79))
+            draw.ellipse((100, 18, 132, 55), fill=(59, 79, 94))
+            draw.rectangle((88, 31, 119, 54), fill=(59, 79, 94))
+        if condition in ("DRIZZLE", "RAIN", "STORM"):
+            for x in (87, 100, 113):
+                draw.line((x, 56, x - 5, 69), fill=(42, 170, 255), width=3)
+        if condition in ("FOG", "SNOW"):
+            for y in (45, 55, 65):
+                draw.line((78, y, 126, y), fill=(170, 190, 200), width=2)
+
+        draw.rectangle((3, 3, 124, 124), outline=(36, 102, 128), width=2)
+        draw.text((64, 3), now.strftime("%I:%M"), font=time_font, fill=(255, 255, 255), anchor="mt", stroke_width=1, stroke_fill=(5, 15, 25))
+        draw.text((64, 48), now.strftime("%a %d %b").upper(), font=detail_font, fill=(177, 220, 224), anchor="mt")
+        draw.text((10, 68), condition, font=condition_font, fill=(255, 199, 71))
+        draw.text((10, 90), f"{temperature}°C", font=temperature_font, fill=(255, 255, 255), stroke_width=1, stroke_fill=(4, 13, 24))
         return self.show_image(image, panel)
 
     def show_gif(self, panel=3):
@@ -626,7 +617,7 @@ class PrayerApp:
         with DEVICE_REFRESH_LOCK:
             client = TimeGateClient(ip)
             try:
-                client.show_native_clock_weather(1)
+                client.show_clock_weather(1)
                 if self.prayer_times:
                     self._show_screen_two(client)
                 client.show_hadith(3)
@@ -742,7 +733,7 @@ class PrayerApp:
         with DEVICE_REFRESH_LOCK:
             try:
                 client = TimeGateClient(ip)
-                client.show_native_clock_weather(1)
+                client.show_clock_weather(1)
                 if self.prayer_times:
                     self._show_screen_two(client)
                 client.show_hadith(3)

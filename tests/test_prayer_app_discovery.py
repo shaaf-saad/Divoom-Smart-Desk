@@ -1,8 +1,7 @@
 import socket
-from datetime import datetime, time
-from zoneinfo import ZoneInfo
+from datetime import time
 
-from timegate_prayer_app import PRAYERS, PrayerApp, TimeGateClient, is_timegate_response
+from timegate_prayer_app import PRAYERS, PrayerApp, is_timegate_response
 
 
 def test_timegate_response_requires_device_time_data():
@@ -39,7 +38,7 @@ def test_dashboard_refresh_restores_screen_two(monkeypatch):
         def __init__(self, ip):
             calls.append(("client", ip))
 
-        def show_native_clock_weather(self, panel):
+        def show_clock_weather(self, panel):
             calls.append(("clock", panel))
 
         def show_salah_board(self, times, panel):
@@ -76,7 +75,7 @@ def test_dashboard_refresh_waits_for_prayer_times(monkeypatch):
         def __init__(self, _ip):
             pass
 
-        def show_native_clock_weather(self, panel):
+        def show_clock_weather(self, panel):
             calls.append(("clock", panel))
 
         def show_salah_board(self, _times, panel):
@@ -108,7 +107,7 @@ def test_dashboard_refresh_preserves_active_prayer_alert(monkeypatch):
         def __init__(self, _ip):
             pass
 
-        def show_native_clock_weather(self, panel):
+        def show_clock_weather(self, panel):
             calls.append(("clock", panel))
 
         def show_salah_board(self, _times, panel):
@@ -134,36 +133,3 @@ def test_dashboard_refresh_preserves_active_prayer_alert(monkeypatch):
     app._refresh_dashboard_worker("192.168.68.55")
 
     assert calls == [("clock", 1), ("prayer", "Fajr", 2), ("hadith", 3)]
-
-
-def test_native_clock_weather_targets_screen_one_and_uses_configured_timezone(monkeypatch):
-    payloads = []
-    client = TimeGateClient.__new__(TimeGateClient)
-    client.config = {
-        "latitude": -37.8368,
-        "longitude": 144.6596,
-        "timezone": "Australia/Melbourne",
-    }
-    monkeypatch.setattr(client, "send", payloads.append)
-
-    client.show_native_clock_weather(panel=1)
-
-    offset_minutes = int(
-        datetime.now(ZoneInfo("Australia/Melbourne")).utcoffset().total_seconds() // 60
-    )
-    expected_timezone = (
-        f"GMT{'+' if offset_minutes >= 0 else '-'}"
-        f"{abs(offset_minutes) // 60}:{abs(offset_minutes) % 60:02d}"
-    )
-    assert payloads[0]["Command"] == "Sys/LogAndLat"
-    assert payloads[1] == {
-        "Command": "Sys/TimeZone",
-        "TimeZoneValue": expected_timezone,
-    }
-    assert payloads[2] == {"Command": "Draw/ResetHttpGifId"}
-    assert payloads[3] == {
-        "Command": "Channel/SetClockSelectId",
-        "ClockId": 50,
-        "LcdIndex": 0,
-        "LcdIndependence": [1, 0, 0, 0, 0],
-    }
