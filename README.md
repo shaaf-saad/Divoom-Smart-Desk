@@ -8,7 +8,7 @@ A Windows desktop dashboard for the Divoom TimeGate with five independently upda
 |---|---|---|
 | 1 — Clock & Weather | Tarneit time, date and live temperature | Every minute |
 | 2 — Salah | Fajr, Dhuhr, Asr, Maghrib and Isha times | Every 12 hours |
-| 3 — GIFs | Rotating local animated GIF playlist | GIF changes every 5 minutes |
+| 3 — Hadith | Rotating Hadith cards | Changes every 5 minutes |
 | 4 — Knowledge | Rotating AI, technology and general facts | Every minute |
 | 5 — Server Monitor | Live CPU, RAM and disk usage | Every 5 seconds |
 
@@ -24,7 +24,7 @@ Prayer times are calculated for **Tarneit, Victoria** using the **Muslim World L
 
 ## Requirements
 
-- Windows 10 or Windows 11
+- Windows 10/11 or Linux with a graphical desktop session
 - Python 3.10+
 - A Divoom TimeGate on the same Wi-Fi/LAN network
 - Internet access for prayer times and weather
@@ -49,6 +49,10 @@ The app stores settings in `timegate_prayer_config.json`. It checks the configur
 ## Windows startup
 
 `start_timegate_prayer.bat` starts the app in the background. It can also be placed in the Windows Startup folder or registered with Task Scheduler.
+
+## Linux startup
+
+Run `./start_timegate_prayer.sh` manually, or use the GNOME desktop entry installed at `~/.config/autostart/divoom-timegate.desktop`. The launcher prevents duplicate instances, logs to `~/.local/state/divoom-timegate/dashboard.log`, and restarts the dashboard after a crash.
 
 ## GIF playlist
 

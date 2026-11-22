@@ -1,4 +1,5 @@
 import base64
+import ipaddress
 import io
 import json
 import os
@@ -37,6 +38,30 @@ DEFAULT_CONFIG = {
 }
 
 PRAYERS = ("Fajr", "Dhuhr", "Asr", "Maghrib", "Isha")
+DEVICE_API_LOCK = threading.Lock()
+
+HADITH_CARDS = (
+    ("INTENTION", "Actions are judged by intentions."),
+    ("GOODNESS", "Whoever believes in Allah and the Last Day should speak good or remain silent."),
+    ("CHARITY", "Charity does not decrease wealth."),
+    ("COURTESY", "The best among you are those with the best character."),
+    ("BROTHERHOOD", "Do not envy, hate, or turn away from one another."),
+    ("NEIGHBOR", "Do not forget the rights of your neighbor."),
+    ("SMILE", "Your smile for your brother is charity."),
+    ("REMEMBER", "Remember Allah often."),
+    ("EASE", "Make things easy and do not make them difficult."),
+    ("THANKFUL", "A grateful person is pleased with little."),
+    ("MERCY", "Those who show mercy are shown mercy."),
+    ("WORK", "The best provision is righteous conduct."),
+)
+
+
+def is_timegate_response(data):
+    return (
+        isinstance(data, dict)
+        and data.get("error_code") == 0
+        and ("UTCTime" in data or "LocalTime" in data)
+    )
 
 
 def load_config():
@@ -57,7 +82,8 @@ def save_config(config):
 class TimeGateClient:
     def __init__(self, ip):
         self.ip = ip
-        self.local_token = load_config().get("local_token", "")
+        self.config = load_config()
+        self.local_token = self.config.get("local_token", "")
 
     @property
     def url(self):
@@ -69,8 +95,15 @@ class TimeGateClient:
         local_token = getattr(self, "local_token", None)
         if local_token:
             payload = {**payload, "LocalToken": int(local_token)}
-        response = requests.post(self.url, json=payload, timeout=timeout)
+        with DEVICE_API_LOCK:
+            response = requests.post(self.url, json=payload, timeout=timeout)
         response.raise_for_status()
+        try:
+            result = response.json()
+        except ValueError as exc:
+            raise RuntimeError("TimeGate returned a non-JSON response") from exc
+        if not isinstance(result, dict) or result.get("error_code") != 0:
+            raise RuntimeError(f"TimeGate rejected {payload['Command']}: {result}")
         return True
 
     def set_brightness(self, brightness):
@@ -108,6 +141,64 @@ class TimeGateClient:
             "PicData": pic_data,
         })
 
+    def show_native_clock_weather(self, panel=1):
+        self.send({
+            "Command": "Sys/LogAndLat",
+            "Latitude": str(self.config["latitude"]),
+            "Longitude": str(self.config["longitude"]),
+        })
+        self.send({
+            "Command": "Sys/TimeZone",
+            "TimeZoneValue": "GMT+11:00",
+        })
+        return self.send({
+            "Command": "Draw/SendHttpItemList",
+            "LcdIndex": panel,
+            "NewFlag": 1,
+            "BackgroudGif": "",
+            "ItemList": [
+                {
+                    "TextId": 1,
+                    "type": 6,
+                    "x": 64,
+                    "y": 24,
+                    "dir": 0,
+                    "font": 2,
+                    "TextWidth": 120,
+                    "Textheight": 16,
+                    "speed": 0,
+                    "align": 2,
+                    "color": "#00FFAA",
+                },
+                {
+                    "TextId": 2,
+                    "type": 14,
+                    "x": 64,
+                    "y": 58,
+                    "dir": 0,
+                    "font": 4,
+                    "TextWidth": 120,
+                    "Textheight": 24,
+                    "speed": 0,
+                    "align": 2,
+                    "color": "#FFC050",
+                },
+                {
+                    "TextId": 3,
+                    "type": 14,
+                    "x": 64,
+                    "y": 94,
+                    "dir": 0,
+                    "font": 2,
+                    "TextWidth": 120,
+                    "Textheight": 16,
+                    "speed": 0,
+                    "align": 2,
+                    "color": "#FFFFFF",
+                },
+            ],
+        })
+
     def show_clock_weather(self, panel=1):
         now = datetime.now(ZoneInfo("Australia/Melbourne"))
         temperature = "--"
@@ -141,7 +232,7 @@ class TimeGateClient:
         except Exception:
             pass
 
-        image = Image.new("RGB", (128, 128), (12, 12, 16))
+        image = Image.new("RGB", (128, 128), (5, 12, 18))
         draw = ImageDraw.Draw(image)
         try:
             title = ImageFont.truetype("arial.ttf", 14)
@@ -151,9 +242,12 @@ class TimeGateClient:
             title = ImageFont.load_default()
             time_font = ImageFont.load_default()
             value = ImageFont.load_default()
+        draw.rectangle((4, 4, 123, 123), outline=(0, 255, 255), width=2)
+        draw.line((8, 28, 120, 28), fill=(255, 190, 80), width=1)
         draw.text((8, 8), "CLOCK / WEATHER", fill=(255,255,255), font=title)
         draw.text((8, 34), now.strftime("%H:%M"), fill=(0,255,170), font=time_font)
-        draw.text((8, 68), f"{temperature}°C", fill=(255,190,80), font=time_font)
+        draw.text((8, 66), "TEMP", fill=(180,220,220), font=value)
+        draw.text((8, 82), f"{temperature}°C", fill=(255,190,80), font=time_font)
         draw.text((8, 104), now.strftime("%a %d %b").upper(), fill=(255,255,255), font=value)
         draw.text((8, 121), condition, fill=(180,220,220), font=value)
         return self.show_image(image, panel)
@@ -212,6 +306,47 @@ class TimeGateClient:
         except Exception:
             return False
 
+    def show_hadith(self, panel=3):
+        card_index = (int(time.time()) // 300) % len(HADITH_CARDS)
+        title, text = HADITH_CARDS[card_index]
+
+        image = Image.new("RGB", (128, 128), (10, 18, 22))
+        draw = ImageDraw.Draw(image)
+        try:
+            title_font = ImageFont.truetype("arial.ttf", 15)
+            text_font = ImageFont.truetype("arial.ttf", 12)
+            footer_font = ImageFont.truetype("arial.ttf", 10)
+        except OSError:
+            title_font = ImageFont.load_default()
+            text_font = ImageFont.load_default()
+            footer_font = ImageFont.load_default()
+
+        draw.rectangle((5, 5, 122, 122), outline=(0, 255, 255), width=2)
+        draw.line((9, 29, 118, 29), fill=(255, 190, 80), width=1)
+        draw.text((12, 12), title, fill=(255, 255, 255), font=title_font)
+
+        words = text.split()
+        lines = []
+        line = ""
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            if draw.textbbox((0, 0), candidate, font=text_font)[2] > 104:
+                lines.append(line)
+                line = word
+            else:
+                line = candidate
+        if line:
+            lines.append(line)
+
+        y = 38
+        for line in lines[:5]:
+            draw.text((12, y), line, fill=(0, 255, 170), font=text_font)
+            y += 15
+
+        minutes = (300 - (int(time.time()) % 300)) // 60
+        draw.text((12, 108), f"NEW IN {minutes} MIN", fill=(180, 220, 220), font=footer_font)
+        return self.show_image(image, panel)
+
     def show_knowledge(self, panel=4):
         cards = (
             ("AI", "Models learn patterns from examples."),
@@ -223,7 +358,7 @@ class TimeGateClient:
         )
         category, fact = cards[(int(time.time()) // 300) % len(cards)]
 
-        image = Image.new("RGB", (128, 128), (10, 18, 32))
+        image = Image.new("RGB", (128, 128), (5, 12, 18))
         draw = ImageDraw.Draw(image)
         try:
             title = ImageFont.truetype("arial.ttf", 16)
@@ -231,6 +366,8 @@ class TimeGateClient:
         except OSError:
             title = ImageFont.load_default()
             text = ImageFont.load_default()
+        draw.rectangle((4, 4, 123, 123), outline=(0, 255, 255), width=2)
+        draw.line((8, 28, 120, 28), fill=(255, 190, 80), width=1)
         draw.text((8, 8), "KNOWLEDGE", fill=(255,255,255), font=title)
         draw.text((8, 32), category, fill=(0,255,170), font=text)
 
@@ -275,7 +412,7 @@ class TimeGateClient:
             self.send({
                 "Command": "Channel/SetClockSelectId",
                 "ClockId": 625,
-                "LcdIndex": panel,
+                "LcdIndex": panel - 1,
                 "LcdIndependence": [0, 0, 0, 0, 1],
             })
             self._native_pc_face_ready = True
@@ -309,7 +446,8 @@ class TimeGateClient:
             title_font = ImageFont.load_default()
             row_font = ImageFont.load_default()
 
-        draw.rectangle((5, 5, 122, 122), outline=(0, 255, 170), width=2)
+        draw.rectangle((5, 5, 122, 122), outline=(0, 255, 255), width=2)
+        draw.line((9, 29, 118, 29), fill=(255, 190, 80), width=1)
         draw.text((12, 10), "SALAH", fill=(255, 255, 255), font=title_font)
         y = 34
         for prayer in PRAYERS:
@@ -382,6 +520,7 @@ class PrayerApp:
         self.prayer_times = {}
         self.alert_triggered = set()
         self.running = True
+        self.discovery_lock = threading.Lock()
 
         self.build_ui()
         self.load_prayer_times()
@@ -429,64 +568,99 @@ class PrayerApp:
 
     def discover_device(self):
         self.status_var.set("Scanning the local network…")
-        threading.Thread(target=self._discover_worker, daemon=True).start()
+        threading.Thread(target=self._discover_worker, kwargs={"manual": True}, daemon=True).start()
 
     def auto_discover_if_needed(self):
         if not self.running:
             return
         ip = self.ip_var.get().strip()
-        try:
-            response = requests.post(
-                f"http://{ip}:80/post",
-                json={"Command": "Device/GetDeviceTime"},
-                timeout=1,
-            )
-            reachable = response.ok
-        except requests.RequestException:
-            reachable = False
-
-        if not reachable:
-            threading.Thread(target=self._discover_worker, daemon=True).start()
-            self.status_var.set("TimeGate IP changed or unavailable; rediscovering…")
         self.root.after(5 * 60 * 1000, self.auto_discover_if_needed)
+        threading.Thread(target=self._check_or_discover_worker, args=(ip,), daemon=True).start()
 
-    def _discover_worker(self):
+    def _check_or_discover_worker(self, ip):
+        if self.is_timegate_online(ip):
+            return
+        self.root.after(0, lambda: self.status_var.set("TimeGate unavailable; scanning the local network…"))
+        self._discover_worker()
+
+    def is_timegate_online(self, ip):
+        if not ip:
+            return False
+        payload = {"Command": "Device/GetDeviceTime"}
+        if self.config.get("local_token"):
+            payload["LocalToken"] = int(self.config["local_token"])
+        try:
+            with DEVICE_API_LOCK:
+                response = requests.post(f"http://{ip}:80/post", json=payload, timeout=1)
+            response.raise_for_status()
+            return is_timegate_response(response.json())
+        except (requests.RequestException, ValueError):
+            return False
+
+    def _discover_worker(self, manual=False):
+        if not self.discovery_lock.acquire(blocking=False):
+            return
+        try:
+            self._scan_local_network(manual)
+        finally:
+            self.discovery_lock.release()
+
+    def _scan_local_network(self, manual):
         local_ip = self.get_local_ip()
-        prefix = ".".join(local_ip.split(".")[:3])
+        network = self.get_local_network(local_ip)
+        hosts = list(network.hosts())
+        if len(hosts) > 4096:
+            network = ipaddress.ip_network(f"{local_ip}/24", strict=False)
+            hosts = list(network.hosts())
         found = []
 
-        def probe(last_octet):
-            ip = f"{prefix}.{last_octet}"
+        def probe(address):
+            ip = str(address)
+            if ip == local_ip:
+                return None
             try:
-                response = requests.post(
-                    f"http://{ip}:80/post",
-                    json={"Command": "Device/GetDeviceTime"},
-                    timeout=0.12,
-                )
-                if response.ok:
+                with socket.create_connection((ip, 80), timeout=0.15):
                     return ip
-            except requests.RequestException:
-                pass
-            return None
+            except OSError:
+                return None
 
-        with ThreadPoolExecutor(max_workers=64) as executor:
-            futures = [executor.submit(probe, n) for n in range(1, 255)]
-            for future in as_completed(futures):
-                ip = future.result()
-                if ip:
-                    found.append(ip)
+        with ThreadPoolExecutor(max_workers=128) as executor:
+            futures = [executor.submit(probe, address) for address in hosts]
+            candidates = [future.result() for future in as_completed(futures)]
+        found = [ip for ip in candidates if ip and self.is_timegate_online(ip)]
 
-        self.root.after(0, lambda: self._finish_discovery(found))
+        self.root.after(0, lambda: self._finish_discovery(found, manual))
 
-    def _finish_discovery(self, found):
+    @staticmethod
+    def get_local_network(local_ip):
+        for addresses in psutil.net_if_addrs().values():
+            for address in addresses:
+                if address.family == socket.AF_INET and address.address == local_ip and address.netmask:
+                    return ipaddress.ip_network(f"{local_ip}/{address.netmask}", strict=False)
+        return ipaddress.ip_network(f"{local_ip}/24", strict=False)
+
+    def _finish_discovery(self, found, manual=False):
         if not found:
             self.status_var.set("No TimeGate found. Check Wi-Fi and enter its IP manually.")
-            messagebox.showwarning("TimeGate not found", "No TimeGate answered on the local network.")
+            if manual:
+                messagebox.showwarning("TimeGate not found", "No TimeGate answered on the local network.")
             return
         ip = found[0]
         self.ip_var.set(ip)
         self.save_ip()
         self.status_var.set(f"Connected to TimeGate at {ip}")
+        threading.Thread(target=self._refresh_all_panels_worker, args=(ip,), daemon=True).start()
+
+    def _refresh_all_panels_worker(self, ip):
+        client = TimeGateClient(ip)
+        try:
+            client.show_native_clock_weather(1)
+            client.show_salah_board(self.prayer_times, 2)
+            client.show_hadith(3)
+            client.show_knowledge(4)
+            client.show_server_monitor(5)
+        except (requests.RequestException, RuntimeError) as exc:
+            self.root.after(0, lambda error=str(exc): self.status_var.set(f"TimeGate refresh failed: {error}"))
 
     @staticmethod
     def get_local_ip():
@@ -529,7 +703,11 @@ class PrayerApp:
                     times[prayer] = datetime.strptime(clean.split()[0], "%H:%M").time()
             self.root.after(0, lambda: self._finish_prayer_load(times))
         except Exception as exc:
-            self.root.after(0, lambda: self.status_var.set(f"Prayer-time update failed: {exc}"))
+            self.root.after(
+                0,
+                lambda error=str(exc): self.status_var.set(f"Prayer-time update failed: {error}"),
+            )
+            self.root.after(15 * 60 * 1000, self.load_prayer_times)
 
     def _finish_prayer_load(self, times):
         self.prayer_times = times
@@ -538,36 +716,44 @@ class PrayerApp:
             time_var, _ = self.prayer_vars[prayer]
             time_var.set(times[prayer].strftime("%I:%M %p"))
         self.status_var.set(f"Prayer times loaded for {now.strftime('%d %b %Y')}")
+        self._start_device_update("Salah", lambda client: client.show_salah_board(times, 2))
+        self.root.after(12 * 60 * 60 * 1000, self.load_prayer_times)
+
+    def _start_device_update(self, label, update):
         ip = self.ip_var.get().strip()
         if ip:
             threading.Thread(
-                target=lambda: TimeGateClient(ip).show_salah_board(times, 2),
+                target=self._run_device_update,
+                args=(ip, label, update),
                 daemon=True,
             ).start()
-        self.root.after(12 * 60 * 60 * 1000, self.load_prayer_times)
+
+    def _run_device_update(self, ip, label, update):
+        try:
+            update(TimeGateClient(ip))
+        except (requests.RequestException, RuntimeError) as exc:
+            self.root.after(
+                0,
+                lambda error=str(exc): self.status_var.set(f"{label} update failed: {error}"),
+            )
 
     def refresh_salah(self):
         if not self.running:
             return
-        ip = self.ip_var.get().strip()
-        if ip:
-            threading.Thread(target=lambda: TimeGateClient(ip).show_salah_board(self.prayer_times, 2), daemon=True).start()
+        if self.prayer_times:
+            self._start_device_update("Salah", lambda client: client.show_salah_board(self.prayer_times, 2))
         self.root.after(12 * 60 * 60 * 1000, self.refresh_salah)
 
     def refresh_knowledge(self):
         if not self.running:
             return
-        ip = self.ip_var.get().strip()
-        if ip:
-            threading.Thread(target=lambda: TimeGateClient(ip).show_knowledge(4), daemon=True).start()
+        self._start_device_update("Knowledge", lambda client: client.show_knowledge(4))
         self.root.after(60 * 1000, self.refresh_knowledge)
 
     def refresh_server(self):
         if not self.running:
             return
-        ip = self.ip_var.get().strip()
-        if ip:
-            threading.Thread(target=lambda: TimeGateClient(ip).show_server_monitor(5), daemon=True).start()
+        self._start_device_update("Server monitor", lambda client: client.show_server_monitor(5))
         self.root.after(5000, self.refresh_server)
 
     def refresh_dashboard(self):
@@ -582,10 +768,13 @@ class PrayerApp:
         try:
             client = TimeGateClient(ip)
             client.show_clock_weather(1)
-            client.show_gif(3)
-            self.root.after(0, lambda: self.status_var.set("Clock and GIF refreshed"))
+            client.show_hadith(3)
+            self.root.after(0, lambda: self.status_var.set("Clock and Hadith refreshed"))
         except Exception as exc:
-            self.root.after(0, lambda: self.status_var.set(f"Clock/GIF update failed: {exc}"))
+            self.root.after(
+                0,
+                lambda error=str(exc): self.status_var.set(f"Clock/GIF update failed: {error}"),
+            )
 
     def clock_tick(self):
         if not self.running:
@@ -618,12 +807,16 @@ class PrayerApp:
             try:
                 client = TimeGateClient(ip)
                 client.show_prayer(prayer, panel=2)
+                client.send({"Command": "Device/PlayBuzzer", "ActiveTimeInCycle": 100, "OffTimeInCycle": 100, "PlayTotalTime": 2000})
                 threading.Timer(
                     self.config["alert_seconds"],
                     lambda: self.restore_salah(ip),
                 ).start()
             except Exception as exc:
-                self.root.after(0, lambda: self.status_var.set(f"TimeGate alert failed: {exc}"))
+                self.root.after(
+                    0,
+                    lambda error=str(exc): self.status_var.set(f"TimeGate alert failed: {error}"),
+                )
 
         if winsound:
             try:
@@ -639,7 +832,10 @@ class PrayerApp:
             TimeGateClient(ip).show_salah_board(self.prayer_times, panel=2)
             self.root.after(0, lambda: self.status_var.set("Returned to Salah timetable"))
         except Exception as exc:
-            self.root.after(0, lambda: self.status_var.set(f"Could not restore Salah timetable: {exc}"))
+            self.root.after(
+                0,
+                lambda error=str(exc): self.status_var.set(f"Could not restore Salah timetable: {error}"),
+            )
 
     def close(self):
         self.running = False
