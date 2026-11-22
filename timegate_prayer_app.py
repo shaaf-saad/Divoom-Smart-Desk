@@ -39,6 +39,7 @@ DEFAULT_CONFIG = {
 
 PRAYERS = ("Fajr", "Dhuhr", "Asr", "Maghrib", "Isha")
 DEVICE_API_LOCK = threading.Lock()
+DEVICE_REFRESH_LOCK = threading.Lock()
 
 HADITH_CARDS = (
     ("INTENTION", "Actions are judged by intentions."),
@@ -519,6 +520,7 @@ class PrayerApp:
         self.config = load_config()
         self.prayer_times = {}
         self.alert_triggered = set()
+        self.active_alert_prayer = None
         self.running = True
         self.discovery_lock = threading.Lock()
 
@@ -652,15 +654,17 @@ class PrayerApp:
         threading.Thread(target=self._refresh_all_panels_worker, args=(ip,), daemon=True).start()
 
     def _refresh_all_panels_worker(self, ip):
-        client = TimeGateClient(ip)
-        try:
-            client.show_native_clock_weather(1)
-            client.show_salah_board(self.prayer_times, 2)
-            client.show_hadith(3)
-            client.show_knowledge(4)
-            client.show_server_monitor(5)
-        except (requests.RequestException, RuntimeError) as exc:
-            self.root.after(0, lambda error=str(exc): self.status_var.set(f"TimeGate refresh failed: {error}"))
+        with DEVICE_REFRESH_LOCK:
+            client = TimeGateClient(ip)
+            try:
+                client.show_clock_weather(1)
+                if self.prayer_times:
+                    self._show_screen_two(client)
+                client.show_hadith(3)
+                client.show_knowledge(4)
+                client.show_server_monitor(5)
+            except (requests.RequestException, RuntimeError) as exc:
+                self.root.after(0, lambda error=str(exc): self.status_var.set(f"TimeGate refresh failed: {error}"))
 
     @staticmethod
     def get_local_ip():
@@ -716,7 +720,7 @@ class PrayerApp:
             time_var, _ = self.prayer_vars[prayer]
             time_var.set(times[prayer].strftime("%I:%M %p"))
         self.status_var.set(f"Prayer times loaded for {now.strftime('%d %b %Y')}")
-        self._start_device_update("Salah", lambda client: client.show_salah_board(times, 2))
+        self._start_device_update("Salah", lambda client: self._show_screen_two(client))
         self.root.after(12 * 60 * 60 * 1000, self.load_prayer_times)
 
     def _start_device_update(self, label, update):
@@ -729,19 +733,20 @@ class PrayerApp:
             ).start()
 
     def _run_device_update(self, ip, label, update):
-        try:
-            update(TimeGateClient(ip))
-        except (requests.RequestException, RuntimeError) as exc:
-            self.root.after(
-                0,
-                lambda error=str(exc): self.status_var.set(f"{label} update failed: {error}"),
-            )
+        with DEVICE_REFRESH_LOCK:
+            try:
+                update(TimeGateClient(ip))
+            except (requests.RequestException, RuntimeError) as exc:
+                self.root.after(
+                    0,
+                    lambda error=str(exc): self.status_var.set(f"{label} update failed: {error}"),
+                )
 
     def refresh_salah(self):
         if not self.running:
             return
         if self.prayer_times:
-            self._start_device_update("Salah", lambda client: client.show_salah_board(self.prayer_times, 2))
+            self._start_device_update("Salah", lambda client: self._show_screen_two(client))
         self.root.after(12 * 60 * 60 * 1000, self.refresh_salah)
 
     def refresh_knowledge(self):
@@ -765,16 +770,19 @@ class PrayerApp:
         self.root.after(60000, self.refresh_dashboard)
 
     def _refresh_dashboard_worker(self, ip):
-        try:
-            client = TimeGateClient(ip)
-            client.show_clock_weather(1)
-            client.show_hadith(3)
-            self.root.after(0, lambda: self.status_var.set("Clock and Hadith refreshed"))
-        except Exception as exc:
-            self.root.after(
-                0,
-                lambda error=str(exc): self.status_var.set(f"Clock/GIF update failed: {error}"),
-            )
+        with DEVICE_REFRESH_LOCK:
+            try:
+                client = TimeGateClient(ip)
+                client.show_clock_weather(1)
+                if self.prayer_times:
+                    self._show_screen_two(client)
+                client.show_hadith(3)
+                self.root.after(0, lambda: self.status_var.set("Clock, Salah and Hadith refreshed"))
+            except Exception as exc:
+                self.root.after(
+                    0,
+                    lambda error=str(exc): self.status_var.set(f"Clock/GIF update failed: {error}"),
+                )
 
     def clock_tick(self):
         if not self.running:
@@ -804,19 +812,21 @@ class PrayerApp:
         ip = self.ip_var.get().strip()
         self.save_ip()
         if ip:
-            try:
-                client = TimeGateClient(ip)
-                client.show_prayer(prayer, panel=2)
-                client.send({"Command": "Device/PlayBuzzer", "ActiveTimeInCycle": 100, "OffTimeInCycle": 100, "PlayTotalTime": 2000})
-                threading.Timer(
-                    self.config["alert_seconds"],
-                    lambda: self.restore_salah(ip),
-                ).start()
-            except Exception as exc:
-                self.root.after(
-                    0,
-                    lambda error=str(exc): self.status_var.set(f"TimeGate alert failed: {error}"),
-                )
+            with DEVICE_REFRESH_LOCK:
+                try:
+                    client = TimeGateClient(ip)
+                    client.show_prayer(prayer, panel=2)
+                    self.active_alert_prayer = prayer
+                    client.send({"Command": "Device/PlayBuzzer", "ActiveTimeInCycle": 100, "OffTimeInCycle": 100, "PlayTotalTime": 2000})
+                    threading.Timer(
+                        self.config["alert_seconds"],
+                        lambda: self.restore_salah(ip),
+                    ).start()
+                except Exception as exc:
+                    self.root.after(
+                        0,
+                        lambda error=str(exc): self.status_var.set(f"TimeGate alert failed: {error}"),
+                    )
 
         if winsound:
             try:
@@ -828,14 +838,21 @@ class PrayerApp:
         self.root.after(0, lambda: self.status_var.set(f"{prayer} alert active for 5 minutes"))
 
     def restore_salah(self, ip):
-        try:
-            TimeGateClient(ip).show_salah_board(self.prayer_times, panel=2)
-            self.root.after(0, lambda: self.status_var.set("Returned to Salah timetable"))
-        except Exception as exc:
-            self.root.after(
-                0,
-                lambda error=str(exc): self.status_var.set(f"Could not restore Salah timetable: {error}"),
-            )
+        with DEVICE_REFRESH_LOCK:
+            try:
+                self.active_alert_prayer = None
+                TimeGateClient(ip).show_salah_board(self.prayer_times, panel=2)
+                self.root.after(0, lambda: self.status_var.set("Returned to Salah timetable"))
+            except Exception as exc:
+                self.root.after(
+                    0,
+                    lambda error=str(exc): self.status_var.set(f"Could not restore Salah timetable: {error}"),
+                )
+
+    def _show_screen_two(self, client):
+        if self.active_alert_prayer:
+            return client.show_prayer(self.active_alert_prayer, panel=2)
+        return client.show_salah_board(self.prayer_times, panel=2)
 
     def close(self):
         self.running = False

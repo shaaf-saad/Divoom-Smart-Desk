@@ -46,6 +46,8 @@ python timegate_prayer_app.py
 
 The app stores settings in `timegate_prayer_config.json`. It checks the configured address every 5 minutes and rediscovers the device when the address stops responding.
 
+Device refreshes are serialized so the clock update, Salah timetable, and Hadith display cannot overwrite one another during morning startup.
+
 ## Windows startup
 
 `start_timegate_prayer.bat` starts the app in the background. It can also be placed in the Windows Startup folder or registered with Task Scheduler.
