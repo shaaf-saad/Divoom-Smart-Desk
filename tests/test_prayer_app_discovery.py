@@ -160,5 +160,10 @@ def test_native_clock_weather_targets_screen_one_and_uses_configured_timezone(mo
         "Command": "Sys/TimeZone",
         "TimeZoneValue": expected_timezone,
     }
-    assert payloads[2]["Command"] == "Draw/SendHttpItemList"
-    assert payloads[2]["LcdIndex"] == 0
+    assert payloads[2] == {"Command": "Draw/ResetHttpGifId"}
+    assert payloads[3] == {
+        "Command": "Channel/SetClockSelectId",
+        "ClockId": 50,
+        "LcdIndex": 0,
+        "LcdIndependence": [1, 0, 0, 0, 0],
+    }

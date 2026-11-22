@@ -160,52 +160,13 @@ class TimeGateClient:
             "Command": "Sys/TimeZone",
             "TimeZoneValue": timezone_value,
         })
+        self.send({"Command": "Draw/ResetHttpGifId"})
+        lcd_independence = [1 if index == panel - 1 else 0 for index in range(5)]
         return self.send({
-            "Command": "Draw/SendHttpItemList",
+            "Command": "Channel/SetClockSelectId",
+            "ClockId": 50,
             "LcdIndex": panel - 1,
-            "NewFlag": 1,
-            "BackgroudGif": "",
-            "ItemList": [
-                {
-                    "TextId": 1,
-                    "type": 6,
-                    "x": 64,
-                    "y": 24,
-                    "dir": 0,
-                    "font": 2,
-                    "TextWidth": 120,
-                    "Textheight": 16,
-                    "speed": 0,
-                    "align": 2,
-                    "color": "#00FFAA",
-                },
-                {
-                    "TextId": 2,
-                    "type": 14,
-                    "x": 64,
-                    "y": 58,
-                    "dir": 0,
-                    "font": 4,
-                    "TextWidth": 120,
-                    "Textheight": 24,
-                    "speed": 0,
-                    "align": 2,
-                    "color": "#FFC050",
-                },
-                {
-                    "TextId": 3,
-                    "type": 14,
-                    "x": 64,
-                    "y": 94,
-                    "dir": 0,
-                    "font": 2,
-                    "TextWidth": 120,
-                    "Textheight": 16,
-                    "speed": 0,
-                    "align": 2,
-                    "color": "#FFFFFF",
-                },
-            ],
+            "LcdIndependence": lcd_independence,
         })
 
     def show_clock_weather(self, panel=1):
