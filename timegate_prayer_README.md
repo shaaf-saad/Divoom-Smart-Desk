@@ -12,7 +12,7 @@ A Windows desktop dashboard for the Divoom TimeGate with five independently upda
 | 4 — Pi-hole | 24-hour blocked percentage, ads blocked, queries and clients | Every minute |
 | 5 — Server Monitor | CPU/GPU usage, CPU/GPU temperature, RAM and disk usage | Every 5 seconds |
 
-Custom Screens 1–4 share a high-contrast neon theme with layered cyan/magenta borders, blue glow, teal labels and yellow accents.
+Custom Screens 1–4 share a high-contrast neon theme with cyan borders, blue separators, white primary text, teal values and yellow accents.
 
 ## Prayer alerts
 
