@@ -3,6 +3,7 @@ import ipaddress
 import io
 import json
 import os
+from pathlib import Path
 import socket
 import sqlite3
 import time
@@ -160,6 +161,15 @@ class TimeGateClient:
 
     def screen_on(self):
         return self.send({"Command": "Channel/OnOffScreen", "OnOff": 1})
+
+    @staticmethod
+    def get_amd_gpu_utilization(drm_path="/sys/class/drm"):
+        for utilization_file in Path(drm_path).glob("card*/device/gpu_busy_percent"):
+            try:
+                return float(utilization_file.read_text(encoding="ascii").strip())
+            except (OSError, ValueError):
+                continue
+        return None
 
     def show_clock(self, panel=3, clock_id=50):
         self.send({"Command": "Draw/ResetHttpGifId"})
@@ -463,6 +473,8 @@ class TimeGateClient:
                 gpu_temperature = float(temperature.strip())
         except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
             pass
+        if gpu_percent is None:
+            gpu_percent = self.get_amd_gpu_utilization()
 
         image = Image.new("RGB", (128, 128), NEON_BACKGROUND)
         draw = ImageDraw.Draw(image)

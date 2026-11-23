@@ -178,6 +178,14 @@ def test_server_monitor_includes_temperatures(monkeypatch):
     assert reset_cache is False
 
 
+def test_amd_gpu_utilization_uses_sysfs(tmp_path):
+    utilization_file = tmp_path / "card1" / "device" / "gpu_busy_percent"
+    utilization_file.parent.mkdir(parents=True)
+    utilization_file.write_text("27\n", encoding="ascii")
+
+    assert TimeGateClient.get_amd_gpu_utilization(tmp_path) == 27.0
+
+
 def test_pihole_stats_count_only_blocked_queries(tmp_path):
     database = tmp_path / "pihole.db"
     with sqlite3.connect(database) as connection:
