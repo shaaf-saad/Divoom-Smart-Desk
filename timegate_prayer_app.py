@@ -357,15 +357,45 @@ class TimeGateClient:
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
         gpu_percent = None
+        cpu_temperature = None
+        gpu_temperature = None
+        try:
+            temperatures = psutil.sensors_temperatures()
+            for sensor_name in ("coretemp", "k10temp", "cpu_thermal"):
+                readings = temperatures.get(sensor_name)
+                valid_readings = [
+                    reading.current for reading in readings or [] if reading.current is not None
+                ]
+                if valid_readings:
+                    cpu_temperature = max(valid_readings)
+                    break
+            for sensor_name in ("amdgpu", "nvidia"):
+                readings = temperatures.get(sensor_name)
+                valid_readings = [
+                    reading.current for reading in readings or [] if reading.current is not None
+                ]
+                if valid_readings:
+                    gpu_temperature = max(valid_readings)
+                    break
+        except (AttributeError, NotImplementedError, OSError):
+            pass
         try:
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+                [
+                    "nvidia-smi",
+                    "--query-gpu=utilization.gpu,temperature.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=3,
             )
             if result.returncode == 0 and result.stdout.strip():
-                gpu_percent = float(result.stdout.strip().splitlines()[0].strip())
+                utilization, temperature = (
+                    result.stdout.strip().splitlines()[0].split(",", maxsplit=1)
+                )
+                gpu_percent = float(utilization.strip())
+                gpu_temperature = float(temperature.strip())
         except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
             pass
 
@@ -386,10 +416,10 @@ class TimeGateClient:
                 "DispData": [
                     f"{cpu:.0f}%",
                     f"{gpu_percent:.0f}%" if gpu_percent is not None else "--",
-                    "--",
-                    "--",
+                    f"{cpu_temperature:.0f}°C" if cpu_temperature is not None else "--",
+                    f"{gpu_temperature:.0f}°C" if gpu_temperature is not None else "--",
                     f"{memory.percent:.0f}%",
-                    "--",
+                    f"{disk.percent:.0f}%",
                 ],
             }],
         })

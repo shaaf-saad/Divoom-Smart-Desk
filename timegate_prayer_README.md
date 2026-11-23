@@ -10,7 +10,7 @@ A Windows desktop dashboard for the Divoom TimeGate with five independently upda
 | 2 — Salah | Fajr, Dhuhr, Asr, Maghrib and Isha times | Every 12 hours |
 | 3 — Hadith | Rotating Hadith cards | Changes every 5 minutes |
 | 4 — Knowledge | Rotating AI, technology and general facts | Every minute |
-| 5 — Server Monitor | Live CPU, RAM and disk usage | Every 5 seconds |
+| 5 — Server Monitor | CPU/GPU usage, CPU/GPU temperature, RAM and disk usage | Every 5 seconds |
 
 ## Prayer alerts
 

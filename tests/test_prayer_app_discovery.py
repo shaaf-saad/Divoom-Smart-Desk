@@ -1,7 +1,9 @@
 import socket
 from datetime import time
+from types import SimpleNamespace
+from unittest.mock import Mock
 
-from timegate_prayer_app import PRAYERS, PrayerApp, is_timegate_response
+from timegate_prayer_app import PRAYERS, PrayerApp, TimeGateClient, is_timegate_response
 
 
 def test_timegate_response_requires_device_time_data():
@@ -133,3 +135,40 @@ def test_dashboard_refresh_preserves_active_prayer_alert(monkeypatch):
     app._refresh_dashboard_worker("192.168.68.55")
 
     assert calls == [("clock", 1), ("prayer", "Fajr", 2), ("hadith", 3)]
+
+
+def test_server_monitor_includes_temperatures(monkeypatch):
+    client = TimeGateClient.__new__(TimeGateClient)
+    client._native_pc_face_ready = True
+    payloads = []
+    monkeypatch.setattr(client, "send", lambda payload: payloads.append(payload))
+    monkeypatch.setattr("timegate_prayer_app.psutil.cpu_percent", lambda interval=None: 42)
+    monkeypatch.setattr(
+        "timegate_prayer_app.psutil.virtual_memory",
+        lambda: SimpleNamespace(percent=61),
+    )
+    monkeypatch.setattr(
+        "timegate_prayer_app.psutil.disk_usage",
+        lambda _path: SimpleNamespace(percent=73),
+    )
+    monkeypatch.setattr(
+        "timegate_prayer_app.psutil.sensors_temperatures",
+        lambda: {
+            "k10temp": [SimpleNamespace(current=67.4)],
+            "amdgpu": [SimpleNamespace(current=59.6)],
+        },
+    )
+    monkeypatch.setattr(
+        "timegate_prayer_app.subprocess.run",
+        lambda *args, **kwargs: Mock(returncode=1, stdout=""),
+    )
+
+    client.show_server_monitor(panel=5)
+
+    assert payloads[-1] == {
+        "Command": "Device/UpdatePCParaInfo",
+        "ScreenList": [{
+            "LcdId": 4,
+            "DispData": ["42%", "--", "67°C", "60°C", "61%", "73%"],
+        }],
+    }
