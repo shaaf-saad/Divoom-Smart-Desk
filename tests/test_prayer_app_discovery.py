@@ -140,9 +140,14 @@ def test_dashboard_refresh_preserves_active_prayer_alert(monkeypatch):
 
 def test_server_monitor_includes_temperatures(monkeypatch):
     client = TimeGateClient.__new__(TimeGateClient)
-    client._native_pc_face_ready = True
-    payloads = []
-    monkeypatch.setattr(client, "send", lambda payload: payloads.append(payload))
+    rendered = []
+    monkeypatch.setattr(
+        client,
+        "show_image",
+        lambda image, panel, reset_cache=True: rendered.append(
+            (image, panel, reset_cache)
+        ),
+    )
     monkeypatch.setattr("timegate_prayer_app.psutil.cpu_percent", lambda interval=None: 42)
     monkeypatch.setattr(
         "timegate_prayer_app.psutil.virtual_memory",
@@ -166,13 +171,11 @@ def test_server_monitor_includes_temperatures(monkeypatch):
 
     client.show_server_monitor(panel=5)
 
-    assert payloads[-1] == {
-        "Command": "Device/UpdatePCParaInfo",
-        "ScreenList": [{
-            "LcdId": 4,
-            "DispData": ["42%", "--", "67°C", "60°C", "61%", "73%"],
-        }],
-    }
+    assert len(rendered) == 1
+    image, panel, reset_cache = rendered[0]
+    assert image.size == (128, 128)
+    assert panel == 5
+    assert reset_cache is False
 
 
 def test_pihole_stats_count_only_blocked_queries(tmp_path):

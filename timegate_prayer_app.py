@@ -464,30 +464,45 @@ class TimeGateClient:
         except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
             pass
 
-        if not getattr(self, "_native_pc_face_ready", False):
-            self.send({
-                "Command": "Channel/SetClockSelectId",
-                "ClockId": 625,
-                "LcdIndex": panel - 1,
-                "LcdIndependence": [0, 0, 0, 0, 1],
-            })
-            self._native_pc_face_ready = True
-            time.sleep(0.5)
+        image = Image.new("RGB", (128, 128), NEON_BACKGROUND)
+        draw = ImageDraw.Draw(image)
+        title_font, label_font, value_font, temperature_font = load_bold_fonts(14, 10, 18, 12)
+        draw_neon_frame(draw, "SYSTEM", title_font)
 
-        return self.send({
-            "Command": "Device/UpdatePCParaInfo",
-            "ScreenList": [{
-                "LcdId": panel - 1,
-                "DispData": [
-                    f"{cpu:.0f}%",
-                    f"{gpu_percent:.0f}%" if gpu_percent is not None else "--",
-                    f"{cpu_temperature:.0f}°C" if cpu_temperature is not None else "--",
-                    f"{gpu_temperature:.0f}°C" if gpu_temperature is not None else "--",
-                    f"{memory.percent:.0f}%",
-                    f"{disk.percent:.0f}%",
-                ],
-            }],
-        })
+        columns = (
+            (
+                34,
+                "CPU",
+                f"{cpu:.0f}%",
+                f"{cpu_temperature:.0f}°C" if cpu_temperature is not None else "--",
+            ),
+            (
+                94,
+                "GPU",
+                f"{gpu_percent:.0f}%" if gpu_percent is not None else "--",
+                f"{gpu_temperature:.0f}°C" if gpu_temperature is not None else "--",
+            ),
+        )
+        for x, label, value, temperature in columns:
+            draw.text((x, 38), label, fill=NEON_YELLOW, font=label_font, anchor="mt")
+            draw.text(
+                (x, 52),
+                value,
+                fill=NEON_WHITE,
+                font=value_font,
+                anchor="mt",
+                stroke_width=1,
+                stroke_fill=NEON_BLUE,
+            )
+            draw.text((x, 75), temperature, fill=NEON_TEAL, font=temperature_font, anchor="mt")
+
+        draw.line((10, 91, 118, 91), fill=NEON_BLUE, width=1)
+        draw.text((34, 96), "RAM", fill=NEON_YELLOW, font=label_font, anchor="mt")
+        draw.text((34, 108), f"{memory.percent:.0f}%", fill=NEON_WHITE, font=value_font, anchor="mt")
+        draw.text((94, 96), "DISK", fill=NEON_YELLOW, font=label_font, anchor="mt")
+        draw.text((94, 108), f"{disk.percent:.0f}%", fill=NEON_WHITE, font=value_font, anchor="mt")
+
+        return self.show_image(image, panel, reset_cache=False)
 
     def show_salah_board(self, times, panel=2):
         image = Image.new("RGB", (128, 128), NEON_BACKGROUND)
