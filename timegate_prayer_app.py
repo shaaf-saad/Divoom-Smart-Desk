@@ -61,6 +61,8 @@ HADITH_CARDS = (
 
 NEON_BACKGROUND = (4, 10, 18)
 NEON_CYAN = (0, 255, 235)
+NEON_BLUE = (36, 126, 255)
+NEON_MAGENTA = (255, 44, 220)
 NEON_TEAL = (0, 255, 170)
 NEON_YELLOW = (255, 190, 80)
 NEON_WHITE = (235, 255, 255)
@@ -104,21 +106,31 @@ def load_bold_fonts(*sizes):
 
 
 def draw_neon_frame(draw, title, title_font):
-    draw.rectangle((2, 2, 125, 125), outline=(8, 54, 72), width=2)
-    draw.rectangle((5, 5, 122, 122), outline=NEON_CYAN, width=1)
-    for x, x_end, y, y_end in (
-        (6, 22, 6, 6),
-        (106, 121, 6, 6),
-        (6, 6, 6, 22),
-        (121, 121, 6, 22),
-        (6, 22, 121, 121),
-        (106, 121, 121, 121),
-        (6, 6, 106, 121),
-        (121, 121, 106, 121),
+    draw.rectangle((1, 1, 126, 126), outline=NEON_MAGENTA, width=2)
+    draw.rectangle((4, 4, 123, 123), outline=NEON_CYAN, width=2)
+    draw.rectangle((7, 7, 120, 120), outline=NEON_BLUE, width=1)
+    for x, y, x_end, y_end, color in (
+        (2, 8, 24, 8, NEON_CYAN),
+        (104, 8, 125, 8, NEON_YELLOW),
+        (8, 2, 8, 24, NEON_YELLOW),
+        (119, 2, 119, 24, NEON_CYAN),
+        (2, 119, 24, 119, NEON_YELLOW),
+        (104, 119, 125, 119, NEON_CYAN),
+        (8, 104, 8, 125, NEON_CYAN),
+        (119, 104, 119, 125, NEON_YELLOW),
     ):
-        draw.line((x, y, x_end, y_end), fill=NEON_YELLOW, width=2)
-    draw.line((10, 29, 118, 29), fill=(35, 125, 145), width=1)
-    draw.text((64, 8), title, fill=NEON_CYAN, font=title_font, anchor="mt")
+        draw.line((x, y, x_end, y_end), fill=color, width=3)
+    draw.line((10, 29, 118, 29), fill=NEON_MAGENTA, width=2)
+    draw.line((10, 31, 118, 31), fill=NEON_CYAN, width=1)
+    draw.text(
+        (64, 8),
+        title,
+        fill=NEON_MAGENTA,
+        font=title_font,
+        anchor="mt",
+        stroke_width=1,
+        stroke_fill=NEON_CYAN,
+    )
 
 
 class TimeGateClient:
@@ -237,10 +249,10 @@ class TimeGateClient:
                 draw.line((78, y, 126, y), fill=(170, 190, 200), width=2)
 
         draw_neon_frame(draw, "CLOCK / WEATHER", title_font)
-        draw.text((64, 22), now.strftime("%I:%M"), font=time_font, fill=NEON_WHITE, anchor="mt", stroke_width=1, stroke_fill=(0, 68, 92))
+        draw.text((64, 22), now.strftime("%I:%M"), font=time_font, fill=NEON_WHITE, anchor="mt", stroke_width=2, stroke_fill=NEON_BLUE)
         draw.text((64, 59), now.strftime("%a %d %b").upper(), font=detail_font, fill=(177, 220, 224), anchor="mt")
-        draw.text((10, 77), condition, font=condition_font, fill=NEON_YELLOW)
-        draw.text((10, 96), f"{temperature}°C", font=temperature_font, fill=NEON_WHITE, stroke_width=1, stroke_fill=(0, 68, 92))
+        draw.text((10, 77), condition, font=condition_font, fill=NEON_MAGENTA)
+        draw.text((10, 96), f"{temperature}°C", font=temperature_font, fill=NEON_YELLOW, stroke_width=1, stroke_fill=NEON_BLUE)
         return self.show_image(image, panel)
 
     def show_gif(self, panel=3):
@@ -321,7 +333,7 @@ class TimeGateClient:
 
         y = 38
         for line in lines[:5]:
-            draw.text((12, y), line, fill=NEON_TEAL, font=text_font)
+            draw.text((12, y), line, fill=NEON_TEAL, font=text_font, stroke_width=1, stroke_fill=NEON_BLUE)
             y += 15
 
         minutes = (300 - (int(time.time()) % 300)) // 60
@@ -379,15 +391,17 @@ class TimeGateClient:
             draw.text(
                 (64, 35),
                 f"{stats['percentage']:.1f}%",
-                fill=(255, 255, 255),
+                fill=NEON_YELLOW,
                 font=percent,
                 anchor="mt",
+                stroke_width=1,
+                stroke_fill=NEON_BLUE,
             )
-            draw.text((64, 72), "BLOCKED", fill=(255, 190, 80), font=text, anchor="mt")
+            draw.text((64, 72), "BLOCKED", fill=NEON_MAGENTA, font=text, anchor="mt")
             draw.text(
                 (8, 91),
                 f"{self.format_count(stats['blocked'])} ADS",
-                fill=(0, 255, 170),
+                fill=NEON_TEAL,
                 font=text,
             )
             draw.text(
@@ -486,10 +500,11 @@ class TimeGateClient:
         title_font, row_font = load_bold_fonts(14, 12)
         draw_neon_frame(draw, "SALAH", title_font)
         y = 34
-        for prayer in PRAYERS:
+        for index, prayer in enumerate(PRAYERS):
             prayer_time = times.get(prayer)
             time_text = prayer_time.strftime("%I:%M") if prayer_time else "--:--"
-            draw.text((10, y), prayer.upper(), fill=NEON_WHITE, font=row_font)
+            row_color = (NEON_CYAN, NEON_MAGENTA, NEON_YELLOW)[index % 3]
+            draw.text((10, y), prayer.upper(), fill=row_color, font=row_font)
             draw.text((82, y), time_text, fill=NEON_TEAL, font=row_font)
             y += 17
 
@@ -502,8 +517,8 @@ class TimeGateClient:
         draw_neon_frame(draw, "PRAYER", title_font)
         name = prayer_name.upper()
         name_box = draw.textbbox((0, 0), name, font=title_font)
-        draw.text(((128 - (name_box[2] - name_box[0])) // 2, 54), name, fill=NEON_YELLOW, font=label_font)
-        draw.text((64, 94), "TIME TO PRAY", fill=NEON_TEAL, font=load_bold_fonts(10)[0], anchor="mt")
+        draw.text(((128 - (name_box[2] - name_box[0])) // 2, 54), name, fill=NEON_YELLOW, font=label_font, stroke_width=1, stroke_fill=NEON_MAGENTA)
+        draw.text((64, 94), "TIME TO PRAY", fill=NEON_CYAN, font=load_bold_fonts(10)[0], anchor="mt")
 
         return self.show_image(image, panel)
 
