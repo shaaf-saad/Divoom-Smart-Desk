@@ -59,6 +59,12 @@ HADITH_CARDS = (
     ("WORK", "The best provision is righteous conduct."),
 )
 
+NEON_BACKGROUND = (4, 10, 18)
+NEON_CYAN = (0, 255, 235)
+NEON_TEAL = (0, 255, 170)
+NEON_YELLOW = (255, 190, 80)
+NEON_WHITE = (235, 255, 255)
+
 
 def is_timegate_response(data):
     return (
@@ -81,6 +87,38 @@ def load_config():
 def save_config(config):
     with open(CONFIG_FILE, "w", encoding="utf-8") as file:
         json.dump(config, file, indent=2)
+
+
+def load_bold_fonts(*sizes):
+    for font_path in (
+        "DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        "arialbd.ttf",
+    ):
+        try:
+            return [ImageFont.truetype(font_path, size) for size in sizes]
+        except OSError:
+            continue
+    return [ImageFont.load_default()] * len(sizes)
+
+
+def draw_neon_frame(draw, title, title_font):
+    draw.rectangle((2, 2, 125, 125), outline=(8, 54, 72), width=2)
+    draw.rectangle((5, 5, 122, 122), outline=NEON_CYAN, width=1)
+    for x, x_end, y, y_end in (
+        (6, 22, 6, 6),
+        (106, 121, 6, 6),
+        (6, 6, 6, 22),
+        (121, 121, 6, 22),
+        (6, 22, 121, 121),
+        (106, 121, 121, 121),
+        (6, 6, 106, 121),
+        (121, 121, 106, 121),
+    ):
+        draw.line((x, y, x_end, y_end), fill=NEON_YELLOW, width=2)
+    draw.line((10, 29, 118, 29), fill=(35, 125, 145), width=1)
+    draw.text((64, 8), title, fill=NEON_CYAN, font=title_font, anchor="mt")
 
 
 class TimeGateClient:
@@ -178,42 +216,31 @@ class TimeGateClient:
         except Exception:
             pass
 
-        image = Image.new("RGB", (128, 128), (4, 13, 24))
+        image = Image.new("RGB", (128, 128), NEON_BACKGROUND)
         draw = ImageDraw.Draw(image)
-        fonts = []
-        for font_path in (
-            "arialbd.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
-        ):
-            try:
-                fonts = [ImageFont.truetype(font_path, size) for size in (42, 25, 15, 11)]
-                break
-            except OSError:
-                continue
-        if not fonts:
-            fonts = [ImageFont.load_default()] * 4
-        time_font, temperature_font, condition_font, detail_font = fonts
+        time_font, temperature_font, condition_font, detail_font, title_font = load_bold_fonts(
+            38, 24, 14, 10, 10
+        )
 
         if condition in ("CLEAR", "MAINLY CLEAR", "PARTLY CLOUDY"):
-            draw.ellipse((77, 3, 133, 59), fill=(73, 57, 8))
-            draw.ellipse((87, 13, 123, 49), fill=(255, 188, 38))
+            draw.ellipse((79, 36, 133, 90), fill=(73, 57, 8))
+            draw.ellipse((88, 45, 124, 81), fill=(255, 188, 38))
         if condition not in ("CLEAR", "MAINLY CLEAR"):
-            draw.ellipse((80, 29, 111, 57), fill=(48, 65, 79))
-            draw.ellipse((100, 18, 132, 55), fill=(59, 79, 94))
-            draw.rectangle((88, 31, 119, 54), fill=(59, 79, 94))
+            draw.ellipse((81, 61, 112, 89), fill=(48, 65, 79))
+            draw.ellipse((99, 49, 132, 86), fill=(59, 79, 94))
+            draw.rectangle((89, 63, 119, 86), fill=(59, 79, 94))
         if condition in ("DRIZZLE", "RAIN", "STORM"):
             for x in (87, 100, 113):
-                draw.line((x, 56, x - 5, 69), fill=(42, 170, 255), width=3)
+                draw.line((x, 87, x - 5, 100), fill=(42, 170, 255), width=3)
         if condition in ("FOG", "SNOW"):
-            for y in (45, 55, 65):
+            for y in (73, 83, 93):
                 draw.line((78, y, 126, y), fill=(170, 190, 200), width=2)
 
-        draw.rectangle((3, 3, 124, 124), outline=(36, 102, 128), width=2)
-        draw.text((64, 3), now.strftime("%I:%M"), font=time_font, fill=(255, 255, 255), anchor="mt", stroke_width=1, stroke_fill=(5, 15, 25))
-        draw.text((64, 48), now.strftime("%a %d %b").upper(), font=detail_font, fill=(177, 220, 224), anchor="mt")
-        draw.text((10, 68), condition, font=condition_font, fill=(255, 199, 71))
-        draw.text((10, 90), f"{temperature}°C", font=temperature_font, fill=(255, 255, 255), stroke_width=1, stroke_fill=(4, 13, 24))
+        draw_neon_frame(draw, "CLOCK / WEATHER", title_font)
+        draw.text((64, 22), now.strftime("%I:%M"), font=time_font, fill=NEON_WHITE, anchor="mt", stroke_width=1, stroke_fill=(0, 68, 92))
+        draw.text((64, 59), now.strftime("%a %d %b").upper(), font=detail_font, fill=(177, 220, 224), anchor="mt")
+        draw.text((10, 77), condition, font=condition_font, fill=NEON_YELLOW)
+        draw.text((10, 96), f"{temperature}°C", font=temperature_font, fill=NEON_WHITE, stroke_width=1, stroke_fill=(0, 68, 92))
         return self.show_image(image, panel)
 
     def show_gif(self, panel=3):
@@ -274,20 +301,10 @@ class TimeGateClient:
         card_index = (int(time.time()) // 300) % len(HADITH_CARDS)
         title, text = HADITH_CARDS[card_index]
 
-        image = Image.new("RGB", (128, 128), (10, 18, 22))
+        image = Image.new("RGB", (128, 128), NEON_BACKGROUND)
         draw = ImageDraw.Draw(image)
-        try:
-            title_font = ImageFont.truetype("arial.ttf", 15)
-            text_font = ImageFont.truetype("arial.ttf", 12)
-            footer_font = ImageFont.truetype("arial.ttf", 10)
-        except OSError:
-            title_font = ImageFont.load_default()
-            text_font = ImageFont.load_default()
-            footer_font = ImageFont.load_default()
-
-        draw.rectangle((5, 5, 122, 122), outline=(0, 255, 255), width=2)
-        draw.line((9, 29, 118, 29), fill=(255, 190, 80), width=1)
-        draw.text((12, 12), title, fill=(255, 255, 255), font=title_font)
+        title_font, text_font, footer_font = load_bold_fonts(13, 11, 9)
+        draw_neon_frame(draw, title, title_font)
 
         words = text.split()
         lines = []
@@ -304,11 +321,11 @@ class TimeGateClient:
 
         y = 38
         for line in lines[:5]:
-            draw.text((12, y), line, fill=(0, 255, 170), font=text_font)
+            draw.text((12, y), line, fill=NEON_TEAL, font=text_font)
             y += 15
 
         minutes = (300 - (int(time.time()) % 300)) // 60
-        draw.text((12, 108), f"NEW IN {minutes} MIN", fill=(180, 220, 220), font=footer_font)
+        draw.text((64, 111), f"NEW IN {minutes} MIN", fill=NEON_YELLOW, font=footer_font, anchor="mt")
         return self.show_image(image, panel)
 
     @staticmethod
@@ -351,21 +368,10 @@ class TimeGateClient:
             offline_cause = exc
             offline = True
 
-        image = Image.new("RGB", (128, 128), (5, 12, 18))
+        image = Image.new("RGB", (128, 128), NEON_BACKGROUND)
         draw = ImageDraw.Draw(image)
-        try:
-            title = ImageFont.truetype("DejaVuSans-Bold.ttf", 16)
-            percent = ImageFont.truetype("DejaVuSans-Bold.ttf", 31)
-            text = ImageFont.truetype("DejaVuSans-Bold.ttf", 12)
-            detail = ImageFont.truetype("DejaVuSans-Bold.ttf", 10)
-        except OSError:
-            title = ImageFont.load_default()
-            percent = ImageFont.load_default()
-            text = ImageFont.load_default()
-            detail = ImageFont.load_default()
-        draw.rectangle((4, 4, 123, 123), outline=(0, 190, 170), width=2)
-        draw.line((8, 28, 120, 28), fill=(255, 190, 80), width=1)
-        draw.text((64, 8), "PI-HOLE", fill=(0, 255, 170), font=title, anchor="mt")
+        title, percent, text, detail = load_bold_fonts(16, 31, 12, 10)
+        draw_neon_frame(draw, "PI-HOLE", title)
         if offline:
             draw.text((64, 48), "OFFLINE", fill=(255, 105, 105), font=percent, anchor="mt")
             draw.text((64, 96), "FTL UNAVAILABLE", fill=(220, 235, 240), font=detail, anchor="mt")
@@ -391,7 +397,7 @@ class TimeGateClient:
                 font=detail,
             )
             draw.text(
-                (8, 118),
+                (8, 113),
                 f"{stats['clients']} CLIENTS / 24H",
                 fill=(220, 235, 240),
                 font=detail,
@@ -475,79 +481,31 @@ class TimeGateClient:
         })
 
     def show_salah_board(self, times, panel=2):
-        self.screen_on()
-        self.send({"Command": "Draw/ResetHttpGifId"})
-
-        image = Image.new("RGB", (128, 128), (5, 12, 18))
+        image = Image.new("RGB", (128, 128), NEON_BACKGROUND)
         draw = ImageDraw.Draw(image)
-        try:
-            title_font = ImageFont.truetype("arial.ttf", 16)
-            row_font = ImageFont.truetype("arial.ttf", 13)
-        except OSError:
-            title_font = ImageFont.load_default()
-            row_font = ImageFont.load_default()
-
-        draw.rectangle((5, 5, 122, 122), outline=(0, 255, 255), width=2)
-        draw.line((9, 29, 118, 29), fill=(255, 190, 80), width=1)
-        draw.text((12, 10), "SALAH", fill=(255, 255, 255), font=title_font)
+        title_font, row_font = load_bold_fonts(14, 12)
+        draw_neon_frame(draw, "SALAH", title_font)
         y = 34
         for prayer in PRAYERS:
             prayer_time = times.get(prayer)
             time_text = prayer_time.strftime("%I:%M") if prayer_time else "--:--"
-            draw.text((10, y), prayer.upper(), fill=(180, 220, 220), font=row_font)
-            draw.text((82, y), time_text, fill=(0, 255, 170), font=row_font)
+            draw.text((10, y), prayer.upper(), fill=NEON_WHITE, font=row_font)
+            draw.text((82, y), time_text, fill=NEON_TEAL, font=row_font)
             y += 17
 
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=85)
-        pic_data = base64.b64encode(buffer.getvalue()).decode("ascii")
-        lcd_array = [1 if index == panel - 1 else 0 for index in range(5)]
-        return self.send({
-            "Command": "Draw/SendHttpGif",
-            "LcdArray": lcd_array,
-            "PicNum": 1,
-            "PicWidth": 128,
-            "PicOffset": 0,
-            "PicID": int(time.time()),
-            "PicSpeed": 1000,
-            "PicData": pic_data,
-        })
+        return self.show_image(image, panel)
 
     def show_prayer(self, prayer_name, panel=2):
-        self.screen_on()
-        self.send({"Command": "Draw/ResetHttpGifId"})
-
-        image = Image.new("RGB", (128, 128), (5, 12, 18))
+        image = Image.new("RGB", (128, 128), NEON_BACKGROUND)
         draw = ImageDraw.Draw(image)
-        try:
-            title_font = ImageFont.truetype("arial.ttf", 24)
-            label_font = ImageFont.truetype("arial.ttf", 18)
-        except OSError:
-            title_font = ImageFont.load_default()
-            label_font = ImageFont.load_default()
-
-        draw.rectangle((8, 8, 119, 119), outline=(0, 255, 170), width=3)
-        title = "PRAYER"
+        title_font, label_font = load_bold_fonts(20, 20)
+        draw_neon_frame(draw, "PRAYER", title_font)
         name = prayer_name.upper()
-        title_box = draw.textbbox((0, 0), title, font=title_font)
         name_box = draw.textbbox((0, 0), name, font=title_font)
-        draw.text(((128 - (title_box[2] - title_box[0])) // 2, 30), title, fill=(255, 255, 255), font=title_font)
-        draw.text(((128 - (name_box[2] - name_box[0])) // 2, 68), name, fill=(0, 255, 170), font=title_font)
+        draw.text(((128 - (name_box[2] - name_box[0])) // 2, 54), name, fill=NEON_YELLOW, font=label_font)
+        draw.text((64, 94), "TIME TO PRAY", fill=NEON_TEAL, font=load_bold_fonts(10)[0], anchor="mt")
 
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=85)
-        pic_data = base64.b64encode(buffer.getvalue()).decode("ascii")
-        lcd_array = [1 if index == panel - 1 else 0 for index in range(5)]
-        return self.send({
-            "Command": "Draw/SendHttpGif",
-            "LcdArray": lcd_array,
-            "PicNum": 1,
-            "PicWidth": 128,
-            "PicOffset": 0,
-            "PicID": int(time.time()),
-            "PicSpeed": 1000,
-            "PicData": pic_data,
-        })
+        return self.show_image(image, panel)
 
 
 class PrayerApp:
