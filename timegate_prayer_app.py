@@ -4,6 +4,7 @@ import io
 import json
 import os
 import socket
+import sqlite3
 import time
 import sys
 import threading
@@ -38,6 +39,8 @@ DEFAULT_CONFIG = {
 }
 
 PRAYERS = ("Fajr", "Dhuhr", "Asr", "Maghrib", "Isha")
+PIHOLE_DB = os.environ.get("PIHOLE_FTL_DB", "/opt/pihole/etc-pihole/pihole-FTL.db")
+PIHOLE_BLOCKED_STATUSES = (1, 4, 5, 6, 7, 8, 9, 10, 11, 18)
 DEVICE_API_LOCK = threading.Lock()
 DEVICE_REFRESH_LOCK = threading.Lock()
 
@@ -308,48 +311,95 @@ class TimeGateClient:
         draw.text((12, 108), f"NEW IN {minutes} MIN", fill=(180, 220, 220), font=footer_font)
         return self.show_image(image, panel)
 
-    def show_knowledge(self, panel=4):
-        cards = (
-            ("AI", "Models learn patterns from examples."),
-            ("TECH", "A GPU runs many small tasks in parallel."),
-            ("NETWORK", "Latency is the delay before data arrives."),
-            ("KNOWLEDGE", "Local AI keeps data inside your network."),
-            ("SYSTEM", "RAM is fast, while storage keeps data."),
-            ("SPACE", "A day on Mars is 24 hours and 37 minutes."),
-        )
-        category, fact = cards[(int(time.time()) // 300) % len(cards)]
+    @staticmethod
+    def load_pihole_stats(db_path=PIHOLE_DB, now=None):
+        since = int(time.time() if now is None else now) - 24 * 60 * 60
+        placeholders = ",".join("?" for _ in PIHOLE_BLOCKED_STATUSES)
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=3) as connection:
+            total, blocked, clients = connection.execute(
+                f"""
+                SELECT
+                    COUNT(*),
+                    COALESCE(SUM(CASE WHEN status IN ({placeholders}) THEN 1 ELSE 0 END), 0),
+                    COUNT(DISTINCT client)
+                FROM query_storage
+                WHERE timestamp >= ?
+                """,
+                (*PIHOLE_BLOCKED_STATUSES, since),
+            ).fetchone()
+        return {
+            "total": total,
+            "blocked": blocked,
+            "clients": clients,
+            "percentage": (blocked / total * 100) if total else 0,
+        }
+
+    @staticmethod
+    def format_count(value):
+        if value < 1000:
+            return str(value)
+        if value < 1_000_000:
+            return f"{value / 1000:.1f}K"
+        return f"{value / 1_000_000:.1f}M"
+
+    def show_pihole(self, panel=4):
+        offline = False
+        try:
+            stats = self.load_pihole_stats()
+        except (OSError, sqlite3.Error) as exc:
+            stats = {"total": 0, "blocked": 0, "clients": 0, "percentage": 0}
+            offline_cause = exc
+            offline = True
 
         image = Image.new("RGB", (128, 128), (5, 12, 18))
         draw = ImageDraw.Draw(image)
         try:
-            title = ImageFont.truetype("arial.ttf", 16)
-            text = ImageFont.truetype("arial.ttf", 12)
+            title = ImageFont.truetype("DejaVuSans-Bold.ttf", 16)
+            percent = ImageFont.truetype("DejaVuSans-Bold.ttf", 31)
+            text = ImageFont.truetype("DejaVuSans-Bold.ttf", 12)
+            detail = ImageFont.truetype("DejaVuSans-Bold.ttf", 10)
         except OSError:
             title = ImageFont.load_default()
+            percent = ImageFont.load_default()
             text = ImageFont.load_default()
-        draw.rectangle((4, 4, 123, 123), outline=(0, 255, 255), width=2)
+            detail = ImageFont.load_default()
+        draw.rectangle((4, 4, 123, 123), outline=(0, 190, 170), width=2)
         draw.line((8, 28, 120, 28), fill=(255, 190, 80), width=1)
-        draw.text((8, 8), "KNOWLEDGE", fill=(255,255,255), font=title)
-        draw.text((8, 32), category, fill=(0,255,170), font=text)
-
-        words = fact.split()
-        lines, line = [], ""
-        for word in words:
-            candidate = f"{line} {word}".strip()
-            if draw.textlength(candidate, font=text) > 112:
-                lines.append(line)
-                line = word
-            else:
-                line = candidate
-        if line:
-            lines.append(line)
-
-        y = 54
-        for item in lines:
-            draw.text((8, y), item, fill=(255,255,255), font=text)
-            y += 18
-        draw.text((8, 116), "UPDATED LIVE", fill=(255,190,80), font=text)
-        return self.show_image(image, panel)
+        draw.text((64, 8), "PI-HOLE", fill=(0, 255, 170), font=title, anchor="mt")
+        if offline:
+            draw.text((64, 48), "OFFLINE", fill=(255, 105, 105), font=percent, anchor="mt")
+            draw.text((64, 96), "FTL UNAVAILABLE", fill=(220, 235, 240), font=detail, anchor="mt")
+        else:
+            draw.text(
+                (64, 35),
+                f"{stats['percentage']:.1f}%",
+                fill=(255, 255, 255),
+                font=percent,
+                anchor="mt",
+            )
+            draw.text((64, 72), "BLOCKED", fill=(255, 190, 80), font=text, anchor="mt")
+            draw.text(
+                (8, 91),
+                f"{self.format_count(stats['blocked'])} ADS",
+                fill=(0, 255, 170),
+                font=text,
+            )
+            draw.text(
+                (8, 106),
+                f"{self.format_count(stats['total'])} QUERIES",
+                fill=(220, 235, 240),
+                font=detail,
+            )
+            draw.text(
+                (8, 118),
+                f"{stats['clients']} CLIENTS / 24H",
+                fill=(220, 235, 240),
+                font=detail,
+            )
+        self.show_image(image, panel)
+        if offline:
+            raise RuntimeError("Pi-hole FTL database unavailable") from offline_cause
+        return True
 
     def show_server_monitor(self, panel=5):
         psutil.cpu_percent(interval=None)
@@ -517,7 +567,7 @@ class PrayerApp:
         self.build_ui()
         self.load_prayer_times()
         self.refresh_salah()
-        self.refresh_knowledge()
+        self.refresh_pihole()
         self.refresh_server()
         self.refresh_dashboard()
         self.auto_discover_if_needed()
@@ -651,7 +701,7 @@ class PrayerApp:
                 if self.prayer_times:
                     self._show_screen_two(client)
                 client.show_hadith(3)
-                client.show_knowledge(4)
+                client.show_pihole(4)
                 client.show_server_monitor(5)
             except (requests.RequestException, RuntimeError) as exc:
                 self.root.after(0, lambda error=str(exc): self.status_var.set(f"TimeGate refresh failed: {error}"))
@@ -739,11 +789,11 @@ class PrayerApp:
             self._start_device_update("Salah", lambda client: self._show_screen_two(client))
         self.root.after(12 * 60 * 60 * 1000, self.refresh_salah)
 
-    def refresh_knowledge(self):
+    def refresh_pihole(self):
         if not self.running:
             return
-        self._start_device_update("Knowledge", lambda client: client.show_knowledge(4))
-        self.root.after(60 * 1000, self.refresh_knowledge)
+        self._start_device_update("Pi-hole", lambda client: client.show_pihole(4))
+        self.root.after(60 * 1000, self.refresh_pihole)
 
     def refresh_server(self):
         if not self.running:

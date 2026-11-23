@@ -9,7 +9,7 @@ A Windows desktop dashboard for the Divoom TimeGate with five independently upda
 | 1 — Clock & Weather | Large clock, temperature and sunny/cloudy/rainy artwork | Every minute |
 | 2 — Salah | Fajr, Dhuhr, Asr, Maghrib and Isha times | Every 12 hours |
 | 3 — Hadith | Rotating Hadith cards | Changes every 5 minutes |
-| 4 — Knowledge | Rotating AI, technology and general facts | Every minute |
+| 4 — Pi-hole | 24-hour blocked percentage, ads blocked, queries and clients | Every minute |
 | 5 — Server Monitor | CPU/GPU usage, CPU/GPU temperature, RAM and disk usage | Every 5 seconds |
 
 ## Prayer alerts
@@ -28,6 +28,7 @@ Prayer times are calculated for **Tarneit, Victoria** using the **Muslim World L
 - Python 3.10+
 - A Divoom TimeGate on the same Wi-Fi/LAN network
 - Internet access for prayer times and weather
+- Pi-hole FTL running locally for Screen 4 (or set `PIHOLE_FTL_DB` to its read-only database path)
 
 ## Installation
 

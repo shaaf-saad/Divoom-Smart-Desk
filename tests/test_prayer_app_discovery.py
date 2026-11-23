@@ -1,3 +1,4 @@
+import sqlite3
 import socket
 from datetime import time
 from types import SimpleNamespace
@@ -171,4 +172,31 @@ def test_server_monitor_includes_temperatures(monkeypatch):
             "LcdId": 4,
             "DispData": ["42%", "--", "67°C", "60°C", "61%", "73%"],
         }],
+    }
+
+
+def test_pihole_stats_count_only_blocked_queries(tmp_path):
+    database = tmp_path / "pihole.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE query_storage (timestamp INTEGER, status INTEGER, client INTEGER)"
+        )
+        connection.executemany(
+            "INSERT INTO query_storage VALUES (?, ?, ?)",
+            [
+                (100, 1, 1),
+                (100, 2, 1),
+                (100, 4, 2),
+                (100, 12, 2),
+                (1, 1, 3),
+            ],
+        )
+
+    stats = TimeGateClient.load_pihole_stats(database, now=100 + 24 * 60 * 60 - 1)
+
+    assert stats == {
+        "total": 4,
+        "blocked": 2,
+        "clients": 2,
+        "percentage": 50.0,
     }
