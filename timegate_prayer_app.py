@@ -557,6 +557,8 @@ class PrayerApp:
         self.active_alert_prayer = None
         self.running = True
         self.discovery_lock = threading.Lock()
+        self.device_available = threading.Event()
+        self.device_available.set()
 
         self.build_ui()
         self.load_prayer_times()
@@ -615,7 +617,9 @@ class PrayerApp:
 
     def _check_or_discover_worker(self, ip):
         if self.is_timegate_online(ip):
+            self.device_available.set()
             return
+        self.device_available.clear()
         self.root.after(0, lambda: self.status_var.set("TimeGate unavailable; scanning the local network…"))
         self._discover_worker()
 
@@ -642,7 +646,8 @@ class PrayerApp:
             self.discovery_lock.release()
 
     def _scan_local_network(self, manual):
-        local_ip = self.get_local_ip()
+        configured_ip = self.ip_var.get().strip()
+        local_ip = self.get_local_ip(configured_ip or "1.1.1.1")
         network = self.get_local_network(local_ip)
         hosts = list(network.hosts())
         if len(hosts) > 4096:
@@ -684,27 +689,31 @@ class PrayerApp:
         ip = found[0]
         self.ip_var.set(ip)
         self.save_ip()
+        self.device_available.set()
         self.status_var.set(f"Connected to TimeGate at {ip}")
         threading.Thread(target=self._refresh_all_panels_worker, args=(ip,), daemon=True).start()
 
     def _refresh_all_panels_worker(self, ip):
-        with DEVICE_REFRESH_LOCK:
+        if not DEVICE_REFRESH_LOCK.acquire(blocking=False):
+            return
+        try:
             client = TimeGateClient(ip)
-            try:
-                client.show_clock_weather(1)
-                if self.prayer_times:
-                    self._show_screen_two(client)
-                client.show_hadith(3)
-                client.show_pihole(4)
-                client.show_server_monitor(5)
-            except (requests.RequestException, RuntimeError) as exc:
-                self.root.after(0, lambda error=str(exc): self.status_var.set(f"TimeGate refresh failed: {error}"))
+            client.show_clock_weather(1)
+            if self.prayer_times:
+                self._show_screen_two(client)
+            client.show_hadith(3)
+            client.show_pihole(4)
+            client.show_server_monitor(5)
+        except (requests.RequestException, RuntimeError) as exc:
+            self.root.after(0, lambda error=str(exc): self.status_var.set(f"TimeGate refresh failed: {error}"))
+        finally:
+            DEVICE_REFRESH_LOCK.release()
 
     @staticmethod
-    def get_local_ip():
+    def get_local_ip(target="1.1.1.1"):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            sock.connect(("1.1.1.1", 80))
+            sock.connect((target, 80))
             return sock.getsockname()[0]
         except OSError:
             return "127.0.0.1"
@@ -758,6 +767,8 @@ class PrayerApp:
         self.root.after(12 * 60 * 60 * 1000, self.load_prayer_times)
 
     def _start_device_update(self, label, update):
+        if not self.device_available.is_set():
+            return
         ip = self.ip_var.get().strip()
         if ip:
             threading.Thread(
@@ -767,14 +778,17 @@ class PrayerApp:
             ).start()
 
     def _run_device_update(self, ip, label, update):
-        with DEVICE_REFRESH_LOCK:
-            try:
-                update(TimeGateClient(ip))
-            except (requests.RequestException, RuntimeError) as exc:
-                self.root.after(
-                    0,
-                    lambda error=str(exc): self.status_var.set(f"{label} update failed: {error}"),
-                )
+        if not DEVICE_REFRESH_LOCK.acquire(blocking=False):
+            return
+        try:
+            update(TimeGateClient(ip))
+        except (requests.RequestException, RuntimeError) as exc:
+            self.root.after(
+                0,
+                lambda error=str(exc): self.status_var.set(f"{label} update failed: {error}"),
+            )
+        finally:
+            DEVICE_REFRESH_LOCK.release()
 
     def refresh_salah(self):
         if not self.running:
@@ -798,25 +812,31 @@ class PrayerApp:
     def refresh_dashboard(self):
         if not self.running:
             return
+        if not self.device_available.is_set():
+            self.root.after(60000, self.refresh_dashboard)
+            return
         ip = self.ip_var.get().strip()
         if ip:
             threading.Thread(target=self._refresh_dashboard_worker, args=(ip,), daemon=True).start()
         self.root.after(60000, self.refresh_dashboard)
 
     def _refresh_dashboard_worker(self, ip):
-        with DEVICE_REFRESH_LOCK:
-            try:
-                client = TimeGateClient(ip)
-                client.show_clock_weather(1)
-                if self.prayer_times:
-                    self._show_screen_two(client)
-                client.show_hadith(3)
-                self.root.after(0, lambda: self.status_var.set("Clock, Salah and Hadith refreshed"))
-            except Exception as exc:
-                self.root.after(
-                    0,
-                    lambda error=str(exc): self.status_var.set(f"Clock/GIF update failed: {error}"),
-                )
+        if not DEVICE_REFRESH_LOCK.acquire(blocking=False):
+            return
+        try:
+            client = TimeGateClient(ip)
+            client.show_clock_weather(1)
+            if self.prayer_times:
+                self._show_screen_two(client)
+            client.show_hadith(3)
+            self.root.after(0, lambda: self.status_var.set("Clock, Salah and Hadith refreshed"))
+        except Exception as exc:
+            self.root.after(
+                0,
+                lambda error=str(exc): self.status_var.set(f"Clock/GIF update failed: {error}"),
+            )
+        finally:
+            DEVICE_REFRESH_LOCK.release()
 
     def clock_tick(self):
         if not self.running:

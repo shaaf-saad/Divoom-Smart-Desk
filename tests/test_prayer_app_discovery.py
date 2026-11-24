@@ -1,10 +1,17 @@
 import sqlite3
 import socket
+import threading
 from datetime import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from timegate_prayer_app import PRAYERS, PrayerApp, TimeGateClient, is_timegate_response
+from timegate_prayer_app import (
+    DEVICE_REFRESH_LOCK,
+    PRAYERS,
+    PrayerApp,
+    TimeGateClient,
+    is_timegate_response,
+)
 
 
 def test_timegate_response_requires_device_time_data():
@@ -32,6 +39,58 @@ def test_local_network_uses_interface_netmask(monkeypatch):
     monkeypatch.setattr("timegate_prayer_app.psutil.net_if_addrs", lambda: {"wlan0": [Address()]})
 
     assert str(PrayerApp.get_local_network("192.168.68.59")) == "192.168.68.0/22"
+
+
+def test_local_ip_routes_discovery_to_configured_device(monkeypatch):
+    class Socket:
+        def __init__(self, *_args):
+            self.target = None
+
+        def connect(self, target):
+            self.target = target
+
+        def getsockname(self):
+            assert self.target == ("192.168.68.55", 80)
+            return "192.168.68.59", 12345
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("timegate_prayer_app.socket.socket", Socket)
+
+    assert PrayerApp.get_local_ip("192.168.68.55") == "192.168.68.59"
+
+
+def test_device_update_skips_while_refresh_is_active(monkeypatch):
+    calls = []
+    app = PrayerApp.__new__(PrayerApp)
+    app.device_available = threading.Event()
+    app.device_available.set()
+    app.root = type(
+        "Root",
+        (),
+        {"after": lambda self, _delay, callback: callback()},
+    )()
+    app.status_var = type("Status", (), {"set": lambda self, _value: None})()
+    assert DEVICE_REFRESH_LOCK.acquire(blocking=False)
+    try:
+        app._run_device_update("192.168.68.55", "test", lambda _client: calls.append(True))
+    finally:
+        DEVICE_REFRESH_LOCK.release()
+
+    assert calls == []
+
+
+def test_device_update_skips_while_timegate_is_offline():
+    app = PrayerApp.__new__(PrayerApp)
+    app.device_available = threading.Event()
+    app.ip_var = type("IP", (), {"get": lambda self: "192.168.68.55"})()
+    started = []
+    app._run_device_update = lambda *args: started.append(args)
+
+    app._start_device_update("test", lambda _client: None)
+
+    assert started == []
 
 
 def test_dashboard_refresh_restores_screen_two(monkeypatch):
