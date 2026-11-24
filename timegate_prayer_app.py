@@ -702,8 +702,7 @@ class PrayerApp:
         threading.Thread(target=self._refresh_all_panels_worker, args=(ip,), daemon=True).start()
 
     def _refresh_all_panels_worker(self, ip):
-        if not DEVICE_REFRESH_LOCK.acquire(blocking=False):
-            return
+        DEVICE_REFRESH_LOCK.acquire()
         try:
             client = TimeGateClient(ip)
             client.show_clock_weather(1)
@@ -786,7 +785,8 @@ class PrayerApp:
             ).start()
 
     def _run_device_update(self, ip, label, update):
-        if not DEVICE_REFRESH_LOCK.acquire(blocking=False):
+        blocking = label != "Server monitor"
+        if not DEVICE_REFRESH_LOCK.acquire(blocking=blocking):
             return
         try:
             update(TimeGateClient(ip))
@@ -829,8 +829,7 @@ class PrayerApp:
         self.root.after(60000, self.refresh_dashboard)
 
     def _refresh_dashboard_worker(self, ip):
-        if not DEVICE_REFRESH_LOCK.acquire(blocking=False):
-            return
+        DEVICE_REFRESH_LOCK.acquire()
         try:
             client = TimeGateClient(ip)
             client.show_clock_weather(1)

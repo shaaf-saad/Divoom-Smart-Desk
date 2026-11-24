@@ -74,7 +74,11 @@ def test_device_update_skips_while_refresh_is_active(monkeypatch):
     app.status_var = type("Status", (), {"set": lambda self, _value: None})()
     assert DEVICE_REFRESH_LOCK.acquire(blocking=False)
     try:
-        app._run_device_update("192.168.68.55", "test", lambda _client: calls.append(True))
+        app._run_device_update(
+            "192.168.68.55",
+            "Server monitor",
+            lambda _client: calls.append(True),
+        )
     finally:
         DEVICE_REFRESH_LOCK.release()
 
