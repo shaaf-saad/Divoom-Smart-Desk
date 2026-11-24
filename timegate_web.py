@@ -79,16 +79,55 @@ PAGE = """<!doctype html>
       figure.innerHTML = `<img id="screen-${panel}" alt="${labels[panel]}"><figcaption>${labels[panel]}</figcaption><div class="updated" id="updated-${panel}">Loading…</div>`;
       root.appendChild(figure);
     }
+    function getToken() {
+      const stored = localStorage.getItem("token");
+      if (!stored) return null;
+      try {
+        const parsed = JSON.parse(stored);
+        return typeof parsed === "string" ? parsed : stored;
+      } catch {
+        return stored;
+      }
+    }
+    function loginRequired() {
+      window.location.replace("/ai/?redirect=%2Ftimegate%2F");
+    }
+    function headers(token) {
+      return {Authorization: `Bearer ${token}`};
+    }
     async function refresh() {
       try {
-        const response = await fetch("api/status", {cache: "no-store"});
+        const token = getToken();
+        if (!token) {
+          loginRequired();
+          return;
+        }
+        const requestHeaders = headers(token);
+        const response = await fetch("api/status", {cache: "no-store", headers: requestHeaders});
+        if (response.status === 401) {
+          loginRequired();
+          return;
+        }
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const status = await response.json();
         for (const screen of status.screens) {
           const image = document.getElementById(`screen-${screen.panel}`);
           const label = document.getElementById(`updated-${screen.panel}`);
           if (screen.available) {
-            image.src = `screens/${screen.panel}.jpg?v=${screen.updatedAt}`;
+            const version = String(screen.updatedAt);
+            if (image.dataset.version !== version) {
+              const imageResponse = await fetch(`screens/${screen.panel}.jpg?v=${version}`, {headers: requestHeaders});
+              if (imageResponse.status === 401) {
+                loginRequired();
+                return;
+              }
+              if (!imageResponse.ok) throw new Error(`HTTP ${imageResponse.status}`);
+              if (image.dataset.objectUrl) URL.revokeObjectURL(image.dataset.objectUrl);
+              const objectUrl = URL.createObjectURL(await imageResponse.blob());
+              image.dataset.objectUrl = objectUrl;
+              image.dataset.version = version;
+              image.src = objectUrl;
+            }
             image.classList.toggle("stale", Date.now() / 1000 - screen.updatedAt > 300);
             label.textContent = `Updated ${new Date(screen.updatedAt * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"})}`;
           } else {

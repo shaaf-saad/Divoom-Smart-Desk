@@ -14,10 +14,14 @@ def test_read_only_preview_serves_cached_screens(tmp_path):
             status = json.load(response)
         with urlopen(f"{base_url}/screens/1.jpg", timeout=2) as response:
             image = response.read()
+        with urlopen(f"{base_url}/", timeout=2) as response:
+            page = response.read()
 
         assert status["screens"][0]["available"]
         assert status["screens"][1]["available"] is False
         assert image == b"screen-one"
+        assert b'localStorage.getItem("token")' in page
+        assert b"Authorization:" in page
     finally:
         server.shutdown()
         thread.join(timeout=2)
