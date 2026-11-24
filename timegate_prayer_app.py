@@ -617,7 +617,15 @@ class PrayerApp:
 
     def _check_or_discover_worker(self, ip):
         if self.is_timegate_online(ip):
+            recovered = not self.device_available.is_set()
             self.device_available.set()
+            if recovered:
+                self.root.after(0, lambda: self.status_var.set(f"TimeGate reconnected at {ip}"))
+                threading.Thread(
+                    target=self._refresh_all_panels_worker,
+                    args=(ip,),
+                    daemon=True,
+                ).start()
             return
         self.device_available.clear()
         self.root.after(0, lambda: self.status_var.set("TimeGate unavailable; scanning the local network…"))

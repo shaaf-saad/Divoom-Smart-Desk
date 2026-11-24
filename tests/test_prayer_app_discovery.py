@@ -93,6 +93,32 @@ def test_device_update_skips_while_timegate_is_offline():
     assert started == []
 
 
+def test_timegate_recovery_refreshes_all_panels(monkeypatch):
+    app = PrayerApp.__new__(PrayerApp)
+    app.device_available = threading.Event()
+    app.status_var = type("Status", (), {"set": lambda self, _value: None})()
+    app.root = type(
+        "Root",
+        (),
+        {"after": lambda self, _delay, callback: callback()},
+    )()
+    refreshed = []
+    monkeypatch.setattr(app, "is_timegate_online", lambda _ip: True)
+    monkeypatch.setattr(
+        "timegate_prayer_app.threading.Thread",
+        lambda *args, **kwargs: type(
+            "Thread",
+            (),
+            {"start": lambda self: refreshed.append(kwargs["args"][0])},
+        )(),
+    )
+
+    app._check_or_discover_worker("192.168.68.55")
+
+    assert app.device_available.is_set()
+    assert refreshed == ["192.168.68.55"]
+
+
 def test_dashboard_refresh_restores_screen_two(monkeypatch):
     calls = []
 
