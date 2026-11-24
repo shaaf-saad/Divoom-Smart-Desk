@@ -49,6 +49,8 @@ python timegate_prayer_app.py
 
 The app stores settings in `timegate_prayer_config.json`. It checks the configured address every 5 minutes and rediscovers the device when the address stops responding.
 
+The read-only five-screen preview is served on `127.0.0.1:8090` for authenticated reverse-proxy access. It exposes cached JPEG previews only; it does not proxy the Divoom API or accept control commands. The Open WebUI-authenticated Nginx locations for `https://shaafsaad.com/timegate/` are in `deploy/nginx/timegate-location.conf`.
+
 Device refreshes are serialized so the clock update, Salah timetable, and Hadith display cannot overwrite one another during morning startup.
 
 ## Windows startup

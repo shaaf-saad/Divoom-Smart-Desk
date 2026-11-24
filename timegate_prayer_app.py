@@ -26,6 +26,16 @@ except ImportError:
     winsound = None
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "timegate_prayer_config.json")
+SCREEN_CACHE_DIR = Path(
+    os.environ.get(
+        "DIVOOM_SCREEN_CACHE",
+        os.path.join(
+            os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
+            "divoom-timegate",
+            "screens",
+        ),
+    )
+)
 DEFAULT_CONFIG = {
     "device_ip": "",
     "local_token": "",
@@ -188,6 +198,14 @@ class TimeGateClient:
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=85)
         pic_data = base64.b64encode(buffer.getvalue()).decode("ascii")
+        try:
+            SCREEN_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            cache_path = SCREEN_CACHE_DIR / f"screen-{panel}.jpg"
+            temp_path = cache_path.with_suffix(".tmp")
+            temp_path.write_bytes(buffer.getvalue())
+            os.replace(temp_path, cache_path)
+        except OSError as exc:
+            print(f"Could not cache Screen {panel} preview: {exc}", file=sys.stderr)
         lcd_array = [1 if index == panel - 1 else 0 for index in range(5)]
         return self.send({
             "Command": "Draw/SendHttpGif",
@@ -922,6 +940,13 @@ class PrayerApp:
 
 
 if __name__ == "__main__":
+    from timegate_web import start_timegate_web_server
+
+    web_server, web_thread = start_timegate_web_server(SCREEN_CACHE_DIR)
     root = tk.Tk()
     app = PrayerApp(root)
-    root.mainloop()
+    try:
+        root.mainloop()
+    finally:
+        web_server.shutdown()
+        web_thread.join(timeout=5)
