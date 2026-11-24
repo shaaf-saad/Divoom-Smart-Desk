@@ -17,8 +17,19 @@ HOME_BACKUP_FILE="$HOME_FILE.bak-before-timegate"
 cp "$SITE_FILE" "$BACKUP_FILE"
 cp "$HOME_FILE" "$HOME_BACKUP_FILE"
 temporary_file="$(mktemp)"
+trap 'rm -f "$temporary_file"' EXIT
 awk -v snippet="$SNIPPET_FILE" '
+    function emit_snippet(line) {
+        while ((getline line < snippet) > 0) {
+            print line
+        }
+        close(snippet)
+    }
     /# TIMEGATE-ROUTE-BEGIN/ {
+        if (!inserted) {
+            emit_snippet()
+            inserted = 1
+        }
         replacing = 1
         next
     }
@@ -29,7 +40,9 @@ awk -v snippet="$SNIPPET_FILE" '
     replacing {
         next
     }
-    /^[[:space:]]*location = \/timegate[[:space:]]/ && !legacy_inserted {
+    /^[[:space:]]*location = \/timegate[[:space:]]/ && !inserted {
+        emit_snippet()
+        inserted = 1
         legacy = 1
         next
     }
@@ -40,10 +53,7 @@ awk -v snippet="$SNIPPET_FILE" '
         next
     }
     /^[[:space:]]*location = \/ai[[:space:]]/ && !inserted {
-        while ((getline line < snippet) > 0) {
-            print line
-        }
-        close(snippet)
+        emit_snippet()
         inserted = 1
     }
     { print }
@@ -54,7 +64,6 @@ awk -v snippet="$SNIPPET_FILE" '
     }
 ' "$SITE_FILE" > "$temporary_file"
 install -m 0644 "$temporary_file" "$SITE_FILE"
-rm -f "$temporary_file"
 install -m 0644 "$SCRIPT_DIR/site/index.html" /var/www/shaafsaad.com/index.html
 
 if ! nginx -t; then
